@@ -45,7 +45,7 @@ From another device on the same network, replace `localhost` with the server's L
 
 ## How it works
 
-Each question gets its own classifier: multinomial logistic regression over hashed bag-of-words features (FNV-1a into 2^14 buckets, lowercase, term-frequency weights), trained with seeded SGD so reruns are bit-identical. Pure Rust, no model downloads, no ONNX runtime, no dependencies beyond `serde` and `tiny_http`.
+Each question gets its own classifier: multinomial logistic regression over hashed bag-of-words features (FNV-1a into 2^14 buckets, lowercase, term-frequency weights), trained with seeded SGD so reruns are bit-identical. Pure Rust, no model downloads, no ONNX runtime, no dependencies beyond `serde`/`serde_json`.
 
 The policy maps confidence to an action:
 
