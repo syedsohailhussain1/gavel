@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "Core types and policy engine for the open typed-decision layer"
 license = "MIT"
+repository = "https://github.com/syedsohailhussain1/gavel"
+keywords = ["decision", "classification", "calibration", "agents"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

@@ -57,7 +57,12 @@ impl Registry {
         self.engines.insert(name.clone(), LogisticEngine::new());
         self.questions.insert(
             name.clone(),
-            Question { name, input_schema, output_schema, policy },
+            Question {
+                name,
+                input_schema,
+                output_schema,
+                policy,
+            },
         );
     }
 
@@ -152,7 +157,9 @@ mod tests {
             ("cannot sign in account".into(), "account".into()),
         ];
         reg.train("q", &examples).unwrap();
-        let d = reg.ask("q", &json!({"text": "refund my invoice payment"})).unwrap();
+        let d = reg
+            .ask("q", &json!({"text": "refund my invoice payment"}))
+            .unwrap();
         assert_eq!(d.output, json!({"label": "billing"}));
         assert!((0.0..=1.0).contains(&d.confidence));
         let m = reg.metrics("q").unwrap();

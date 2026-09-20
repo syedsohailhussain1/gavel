@@ -1,1 +1,18 @@
-{"compilerOptions":{"declaration":true,"esModuleInterop":true,"module":"commonjs","outDir":"dist","rootDir":".","skipLibCheck":true,"sourceMap":true,"strict":true,"target":"ES2020"},"include":["src/**/*","examples/**/*"]}
+{
+  "compilerOptions": {
+    "declaration": true,
+    "esModuleInterop": true,
+    "module": "commonjs",
+    "outDir": "dist",
+    "rootDir": ".",
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "strict": true,
+    "target": "ES2020"
+  },
+  "include": [
+    "src/**/*",
+    "examples/**/*",
+    "test/**/*"
+  ]
+}

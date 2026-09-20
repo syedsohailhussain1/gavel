@@ -33,7 +33,9 @@ fn parse_examples(examples_json: &str, what: &str) -> napi::Result<Vec<(String, 
     let v: serde_json::Value = serde_json::from_str(examples_json)
         .map_err(|e| napi::Error::from_reason(format!("invalid {what} JSON: {e}")))?;
     let arr = v.as_array().ok_or_else(|| {
-        napi::Error::from_reason(format!("{what} must be a JSON array of {{\"input\",\"label\"}}"))
+        napi::Error::from_reason(format!(
+            "{what} must be a JSON array of {{\"input\",\"label\"}}"
+        ))
     })?;
     arr.iter()
         .enumerate()
@@ -59,7 +61,10 @@ impl DecideEngine {
     /// returns the M0 stub decision: fixed `mock_output` at `mock_confidence`.
     /// Pass e.g. `new DecideEngine('{"route":"billing"}', 0.94)`.
     #[napi(constructor)]
-    pub fn new(mock_output_json: Option<String>, mock_confidence: Option<f64>) -> napi::Result<Self> {
+    pub fn new(
+        mock_output_json: Option<String>,
+        mock_confidence: Option<f64>,
+    ) -> napi::Result<Self> {
         let output: serde_json::Value = match mock_output_json {
             Some(s) => serde_json::from_str(&s)
                 .map_err(|e| napi::Error::from_reason(format!("invalid mock_output JSON: {e}")))?,

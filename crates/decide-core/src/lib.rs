@@ -43,9 +43,15 @@ pub struct Policy {
 impl Policy {
     /// Build a policy, validating the thresholds.
     pub fn new(act_above: f64, review_low: f64, review_high: f64) -> Result<Self, DecideError> {
-        for (name, v) in [("act_above", act_above), ("review_low", review_low), ("review_high", review_high)] {
+        for (name, v) in [
+            ("act_above", act_above),
+            ("review_low", review_low),
+            ("review_high", review_high),
+        ] {
             if !(0.0..=1.0).contains(&v) {
-                return Err(DecideError::InvalidPolicy(format!("{name} must be in [0,1], got {v}")));
+                return Err(DecideError::InvalidPolicy(format!(
+                    "{name} must be in [0,1], got {v}"
+                )));
             }
         }
         if review_low > review_high {
@@ -58,12 +64,18 @@ impl Policy {
                 "review_high ({review_high}) must be <= act_above ({act_above})"
             )));
         }
-        Ok(Policy { act_above, review_range: (review_low, review_high) })
+        Ok(Policy {
+            act_above,
+            review_range: (review_low, review_high),
+        })
     }
 
     /// A sensible default: act >= 0.9, review in [0.6, 0.9), escalate below 0.6.
     pub fn default_policy() -> Self {
-        Policy { act_above: 0.9, review_range: (0.6, 0.9) }
+        Policy {
+            act_above: 0.9,
+            review_range: (0.6, 0.9),
+        }
     }
 
     /// Map a confidence score to an action.
@@ -101,11 +113,19 @@ pub struct Decision {
 }
 
 impl Decision {
-    pub fn new(output: serde_json::Value, confidence: f64, policy: &Policy) -> Result<Self, DecideError> {
+    pub fn new(
+        output: serde_json::Value,
+        confidence: f64,
+        policy: &Policy,
+    ) -> Result<Self, DecideError> {
         if !(0.0..=1.0).contains(&confidence) {
             return Err(DecideError::InvalidConfidence(confidence));
         }
-        Ok(Decision { output, action: policy.decide(confidence), confidence })
+        Ok(Decision {
+            output,
+            action: policy.decide(confidence),
+            confidence,
+        })
     }
 }
 
@@ -152,7 +172,11 @@ impl MockEngine {
 }
 
 impl Engine for MockEngine {
-    fn ask(&self, question: &Question, _input: &serde_json::Value) -> Result<Decision, DecideError> {
+    fn ask(
+        &self,
+        question: &Question,
+        _input: &serde_json::Value,
+    ) -> Result<Decision, DecideError> {
         Decision::new(self.output.clone(), self.confidence, &question.policy)
     }
 }
@@ -208,7 +232,9 @@ mod tests {
     #[test]
     fn mock_engine_returns_fixed_decision_and_policy_action() {
         let engine = MockEngine::new(json!({"route": "billing"}), 0.94);
-        let d = engine.ask(&question(), &json!({"subject": "invoice"})).unwrap();
+        let d = engine
+            .ask(&question(), &json!({"subject": "invoice"}))
+            .unwrap();
         assert_eq!(d.output, json!({"route": "billing"}));
         assert_eq!(d.confidence, 0.94);
         assert_eq!(d.action, Action::Act);
@@ -221,7 +247,13 @@ mod tests {
     #[test]
     fn action_serializes_lowercase() {
         assert_eq!(serde_json::to_string(&Action::Act).unwrap(), "\"act\"");
-        assert_eq!(serde_json::to_string(&Action::Review).unwrap(), "\"review\"");
-        assert_eq!(serde_json::to_string(&Action::Escalate).unwrap(), "\"escalate\"");
+        assert_eq!(
+            serde_json::to_string(&Action::Review).unwrap(),
+            "\"review\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Action::Escalate).unwrap(),
+            "\"escalate\""
+        );
     }
 }

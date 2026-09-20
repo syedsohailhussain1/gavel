@@ -21,7 +21,8 @@ const BIND_ADDR: &str = "0.0.0.0:7575";
 const MAX_BODY_BYTES: u64 = 16 * 1024 * 1024;
 
 fn json_response(req: Request, status: u16, value: &Value) {
-    let body = serde_json::to_string(value).unwrap_or_else(|_| r#"{"error":"encode failed"}"#.into());
+    let body =
+        serde_json::to_string(value).unwrap_or_else(|_| r#"{"error":"encode failed"}"#.into());
     let header = Header::from_bytes(b"Content-Type", b"application/json").unwrap();
     let resp = Response::from_string(body)
         .with_header(header)
@@ -145,8 +146,14 @@ fn handle(mut req: Request, registry: &Mutex<Registry>) {
             Ok(body) => {
                 let result = (|| -> Result<(), String> {
                     let name = field_str(&body, "name")?.to_string();
-                    let input_schema = body.get("inputSchema").cloned().unwrap_or_else(|| json!({}));
-                    let output_schema = body.get("outputSchema").cloned().unwrap_or_else(|| json!({}));
+                    let input_schema = body
+                        .get("inputSchema")
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                    let output_schema = body
+                        .get("outputSchema")
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
                     let policy = parse_policy(&body)?;
                     registry
                         .lock()

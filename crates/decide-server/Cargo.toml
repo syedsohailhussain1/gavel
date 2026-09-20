@@ -2,8 +2,10 @@
 name = "decide-server"
 version = "0.1.0"
 edition = "2021"
-description = "Minimal HTTP server exposing decide-core as JSON (M5-lite)"
+description = "Minimal HTTP server exposing decide-core as JSON"
 license = "MIT"
+repository = "https://github.com/syedsohailhussain1/gavel"
+keywords = ["decision", "classification", "calibration", "agents", "http"]
 
 [[bin]]
 name = "gavel-server"

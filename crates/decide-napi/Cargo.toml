@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "Node.js bindings for decide-core"
 license = "MIT"
+repository = "https://github.com/syedsohailhussain1/gavel"
+keywords = ["decision", "classification", "calibration", "agents", "napi"]
 
 [lib]
 crate-type = ["cdylib"]

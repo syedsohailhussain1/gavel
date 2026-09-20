@@ -63,60 +63,68 @@ const CLASSES: [&str; 6] = [
     "feedback",
 ];
 
-/// ~25 distinctive words per class.
-const VOCAB: [&[&str]; 6] = [
-    &[
-        "invoice", "receipt", "charged", "payment", "billing", "card", "credit",
-        "subscription", "overcharged", "amount", "total", "tax", "fee",
-        "statement", "balance", "due", "transaction", "charge", "owed",
-        "purchase", "order", "plan", "renew", "invoice_id", "prorated",
-    ],
-    &[
-        "shipment", "delivery", "tracking", "package", "shipped", "carrier",
-        "courier", "address", "freight", "parcel", "dispatch", "warehouse",
-        "transit", "arrived", "delayed", "express", "priority", "logistics",
-        "box", "route", "driver", "doorstep", "mailbox", "overnight",
-        "waybill", "manifest",
-    ],
-    &[
-        "return", "exchange", "defective", "broken", "damaged", "warranty",
-        "replacement", "rma", "rebate", "restocking", "reimburse", "unopened",
-        "faulty", "missing", "cracked", "scratched", "mislabeled", "recall",
-        "swap", "voucher", "claim", "dispute", "refundable", "defect", "doa",
-    ],
-    &[
-        "login", "password", "username", "profile", "signup", "signin",
-        "reset", "verify", "locked", "suspended", "settings", "security",
-        "authentication", "register", "deactivate", "reactivate", "session",
-        "token", "oauth", "privacy", "rename", "twofactor", "passkey",
-        "recovery", "username_taken", "sso",
-    ],
-    &[
-        "error", "bug", "crash", "exception", "timeout", "lag", "slow",
-        "freeze", "glitch", "outage", "downtime", "server", "database", "api",
-        "endpoint", "latency", "memory", "cpu", "deploy", "patch", "backup",
-        "restore", "failure", "issue", "stacktrace", "regression",
-    ],
-    &[
-        "suggestion", "feedback", "idea", "feature", "request", "improvement",
-        "love", "great", "awesome", "terrible", "dislike", "rating", "review",
-        "survey", "comment", "opinion", "praise", "complaint", "wishlist",
-        "vote", "poll", "recommend", "usability", "darkmode", "roadmap",
-        "nps",
-    ],
+/// One space-separated word list per class. Split once per run (see
+/// `generate_split`); order and contents define the fixed-seed dataset, so
+/// do not reorder words without bumping the seed comment below.
+const VOCAB: [&str; 6] = [
+    "invoice receipt charged payment billing card credit subscription overcharged amount total tax fee statement balance due transaction charge owed purchase order plan renew invoice_id prorated",
+    "shipment delivery tracking package shipped carrier courier address freight parcel dispatch warehouse transit arrived delayed express priority logistics box route driver doorstep mailbox overnight waybill manifest",
+    "return exchange defective broken damaged warranty replacement rma rebate restocking reimburse unopened faulty missing cracked scratched mislabeled recall swap voucher claim dispute refundable defect doa",
+    "login password username profile signup signin reset verify locked suspended settings security authentication register deactivate reactivate session token oauth privacy rename twofactor passkey recovery username_taken sso",
+    "error bug crash exception timeout lag slow freeze glitch outage downtime server database api endpoint latency memory cpu deploy patch backup restore failure issue stacktrace regression",
+    "suggestion feedback idea feature request improvement love great awesome terrible dislike rating review survey comment opinion praise complaint wishlist vote poll recommend usability darkmode roadmap nps",
 ];
 
 const FILLER: &[&str] = &[
-    "the", "a", "my", "please", "could", "you", "help", "me", "with", "i",
-    "need", "want", "to", "and", "is", "was", "for", "on", "it", "this",
-    "that", "of", "in", "hi", "hello", "thanks", "thank", "urgent", "today",
-    "now", "very", "really", "just", "so", "not", "no", "yes", "kindly",
-    "someone", "having", "issue", "about", "regarding",
+    "the",
+    "a",
+    "my",
+    "please",
+    "could",
+    "you",
+    "help",
+    "me",
+    "with",
+    "i",
+    "need",
+    "want",
+    "to",
+    "and",
+    "is",
+    "was",
+    "for",
+    "on",
+    "it",
+    "this",
+    "that",
+    "of",
+    "in",
+    "hi",
+    "hello",
+    "thanks",
+    "thank",
+    "urgent",
+    "today",
+    "now",
+    "very",
+    "really",
+    "just",
+    "so",
+    "not",
+    "no",
+    "yes",
+    "kindly",
+    "someone",
+    "having",
+    "issue",
+    "about",
+    "regarding",
 ];
 
 /// Generate `n` labeled examples. Class assignment cycles 0..6 so splits are
 /// balanced, then examples are shuffled with the seeded RNG.
 fn generate_split(rng: &mut XorShift64, n: usize) -> Vec<(String, String)> {
+    let vocab: Vec<Vec<&str>> = VOCAB.iter().map(|s| s.split(' ').collect()).collect();
     let mut out = Vec::with_capacity(n);
     for i in 0..n {
         let class = i % CLASSES.len();
@@ -127,10 +135,10 @@ fn generate_split(rng: &mut XorShift64, n: usize) -> Vec<(String, String)> {
             if r < CROSS_CLASS_NOISE {
                 // Cross-class noise: word from a different class's vocab.
                 let other = (class + 1 + rng.below(CLASSES.len() - 1)) % CLASSES.len();
-                let v = VOCAB[other];
+                let v = &vocab[other];
                 words.push(v[rng.below(v.len())]);
             } else if r < CROSS_CLASS_NOISE + OWN_CLASS_WORD {
-                let v = VOCAB[class];
+                let v = &vocab[class];
                 words.push(v[rng.below(v.len())]);
             } else {
                 words.push(FILLER[rng.below(FILLER.len())]);
@@ -262,7 +270,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("| accuracy (test) | {:.4} |", acc);
     println!("| ECE before calibration (T=1) | {:.4} |", ece_before);
     println!("| ECE after calibration | {:.4} |", ece_after);
-    println!("| temperature after calibrate | {:.3} |", engine.temperature());
+    println!(
+        "| temperature after calibrate | {:.3} |",
+        engine.temperature()
+    );
 
     // ---- 6. JSON artifact ------------------------------------------------------
     let unix_ts = SystemTime::now()
@@ -272,7 +283,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
     let results_dir = format!("{repo_root}/benches/results");
     std::fs::create_dir_all(&results_dir)?;
-    let results_dir = std::fs::canonicalize(&results_dir)?.to_string_lossy().into_owned();
+    let results_dir = std::fs::canonicalize(&results_dir)?
+        .to_string_lossy()
+        .into_owned();
     let json_path = format!("{results_dir}/{unix_ts}.json");
 
     let payload = serde_json::json!({

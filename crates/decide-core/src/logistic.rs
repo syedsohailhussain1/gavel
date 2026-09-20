@@ -116,6 +116,19 @@ pub struct LogisticEngine {
     ece_after: Option<f64>,
 }
 
+/// Linear scores for one sparse feature vector: bias + W·x.
+fn logits(weights: &[Vec<f64>], bias: &[f64], feats: &[(usize, f64)]) -> Vec<f64> {
+    let mut out = bias.to_vec();
+    for (c, w) in weights.iter().enumerate() {
+        let mut s = 0.0;
+        for (b, x) in feats {
+            s += w[*b] * x;
+        }
+        out[c] += s;
+    }
+    out
+}
+
 impl LogisticEngine {
     pub fn new() -> Self {
         Self::with_config(TrainConfig::default())
@@ -154,22 +167,12 @@ impl LogisticEngine {
         self.ece_after
     }
 
-    fn logits(&self, feats: &[(usize, f64)]) -> Vec<f64> {
-        let mut out = self.bias.clone();
-        for (c, w) in self.weights.iter().enumerate() {
-            let mut s = 0.0;
-            for (b, x) in feats {
-                s += w[*b] * x;
-            }
-            out[c] += s;
-        }
-        out
-    }
-
     /// Train on (text, label) examples. Deterministic given the dataset.
     pub fn train(&mut self, examples: &[(String, String)]) -> Result<(), DecideError> {
         if examples.is_empty() {
-            return Err(DecideError::EngineError("train: no examples provided".into()));
+            return Err(DecideError::EngineError(
+                "train: no examples provided".into(),
+            ));
         }
         let mut classes: Vec<String> = examples.iter().map(|(_, l)| l.clone()).collect();
         classes.sort();
@@ -179,14 +182,16 @@ impl LogisticEngine {
                 "train: need at least 2 distinct labels".into(),
             ));
         }
-        let class_idx: HashMap<&str, usize> =
-            classes.iter().enumerate().map(|(i, c)| (c.as_str(), i)).collect();
+        let class_idx: HashMap<&str, usize> = classes
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.as_str(), i))
+            .collect();
 
         let n_classes = classes.len();
         let mut weights = vec![vec![0.0; N_BUCKETS]; n_classes];
         let mut bias = vec![0.0; n_classes];
-        let feats: Vec<Vec<(usize, f64)>> =
-            examples.iter().map(|(t, _)| featurize(t)).collect();
+        let feats: Vec<Vec<(usize, f64)>> = examples.iter().map(|(t, _)| featurize(t)).collect();
         let targets: Vec<usize> = examples
             .iter()
             .map(|(_, l)| class_idx[l.as_str()])
@@ -196,17 +201,7 @@ impl LogisticEngine {
         for epoch in 0..self.config.epochs {
             Rng(self.config.seed.wrapping_add(epoch as u64)).shuffle(&mut order);
             for &i in &order {
-                let probs = softmax(&{
-                    let mut l = bias.clone();
-                    for (c, w) in weights.iter().enumerate() {
-                        let mut s = 0.0;
-                        for (b, x) in &feats[i] {
-                            s += w[*b] * x;
-                        }
-                        l[c] += s;
-                    }
-                    l
-                }, 1.0);
+                let probs = softmax(&logits(&weights, &bias, &feats[i]), 1.0);
                 let y = targets[i];
                 for c in 0..n_classes {
                     let err = probs[c] - if c == y { 1.0 } else { 0.0 };
@@ -242,7 +237,10 @@ impl LogisticEngine {
                 "predict: engine has not been trained yet".into(),
             ));
         }
-        let probs = softmax(&self.logits(&featurize(text)), self.temperature);
+        let probs = softmax(
+            &logits(&self.weights, &self.bias, &featurize(text)),
+            self.temperature,
+        );
         let (best, conf) = probs
             .iter()
             .enumerate()
@@ -267,7 +265,10 @@ impl LogisticEngine {
     fn nll(&self, texts: &[String], targets: &[usize], temperature: f64) -> f64 {
         let mut total = 0.0;
         for (t, y) in texts.iter().zip(targets.iter()) {
-            let probs = softmax(&self.logits(&featurize(t)), temperature);
+            let probs = softmax(
+                &logits(&self.weights, &self.bias, &featurize(t)),
+                temperature,
+            );
             total += -probs[*y].clamp(1e-15, 1.0).ln();
         }
         total / texts.len() as f64
@@ -336,7 +337,11 @@ impl LogisticEngine {
 impl Engine for LogisticEngine {
     fn ask(&self, question: &Question, input: &serde_json::Value) -> Result<Decision, DecideError> {
         let (best, conf, _) = self.predict(&extract_text(input))?;
-        Decision::new(json!({ "label": self.classes[best] }), conf, &question.policy)
+        Decision::new(
+            json!({ "label": self.classes[best] }),
+            conf,
+            &question.policy,
+        )
     }
 }
 
@@ -367,11 +372,7 @@ pub fn extract_text(input: &serde_json::Value) -> String {
 
 /// Expected calibration error: mean |accuracy − confidence| over `n_bins`
 /// equal-width confidence bins, weighted by bin occupancy.
-pub fn expected_calibration_error(
-    confidences: &[f64],
-    correct: &[bool],
-    n_bins: usize,
-) -> f64 {
+pub fn expected_calibration_error(confidences: &[f64], correct: &[bool], n_bins: usize) -> f64 {
     assert_eq!(confidences.len(), correct.len());
     assert!(n_bins > 0);
     if confidences.is_empty() {
@@ -444,7 +445,9 @@ mod tests {
     fn predictions_are_sane_on_unseen_inputs() {
         let mut eng = LogisticEngine::new();
         eng.train(&separable()).unwrap();
-        let (best, conf, _) = eng.predict("my invoice was charged twice, refund please").unwrap();
+        let (best, conf, _) = eng
+            .predict("my invoice was charged twice, refund please")
+            .unwrap();
         assert_eq!(eng.classes()[best], "billing");
         assert!(conf > 0.5, "clear input should be confident, got {conf}");
         // Untrained engine refuses.
@@ -492,8 +495,12 @@ mod tests {
     /// Overlapping classes + label noise: the model gets overconfident on the
     /// separable-looking parts, so temperature scaling has something to fix.
     fn noisy_data(seed: u64, n: usize) -> Vec<(String, String)> {
-        let billing = ["invoice", "billing", "payment", "refund", "charge", "receipt"];
-        let account = ["password", "login", "account", "username", "signin", "profile"];
+        let billing = [
+            "invoice", "billing", "payment", "refund", "charge", "receipt",
+        ];
+        let account = [
+            "password", "login", "account", "username", "signin", "profile",
+        ];
         let shared = ["please", "help", "issue", "problem", "urgent", "thanks"];
         let mut g = Gen(seed);
         let mut out = Vec::with_capacity(n);

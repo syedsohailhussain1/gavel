@@ -2,6 +2,10 @@
 name = "decide-bench"
 version = "0.1.0"
 edition = "2021"
+description = "Reproducible synthetic benchmark for the gavel decision engine"
+license = "MIT"
+repository = "https://github.com/syedsohailhussain1/gavel"
+keywords = ["benchmark", "decision", "classification", "calibration"]
 
 [[bin]]
 name = "decide-bench"

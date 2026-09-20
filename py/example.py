@@ -12,7 +12,7 @@ sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from gavel_client import GavelClient, GavelError
 
 # Hardcoded templates per class; each expands deterministically into 2
-# training examples (raw + a lightly reworded variant) -> 5 x 2 x 3 = 30.
+# training examples (raw + a lightly reworded variant) -> 3 classes x 5 x 2 = 30.
 TEMPLATES = {
     "billing": [
         "I was charged twice for my subscription",
