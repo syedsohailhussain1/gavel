@@ -1,0 +1,142 @@
+{
+  "generated": "2026-09-20",
+  "gavel_commit": "4afa61d",
+  "dataset": {
+    "name": "PhishNChips v5.2",
+    "n": 2000,
+    "sha256": {
+      "core_emails.csv": "cebb407ff8630491a97400e37464b8db8dfc4299164fca51fcb4ac7eec8204ef",
+      "prompt_strategies.json": "0a293bb8e722d0621845f3e0f9b5cd8bd100818c35222c1cd6964a8fa3b367b0",
+      "reference_results.csv": "5e15d7498aeadd73a23aec0b01979cacf02d172b97c88b3db0078609cc92ef15",
+      "SOURCE_LICENSES.md": "129e19acd6ae8fb243b7861fd7f7c3c63987f431b0f73626b7d21206e275f8b7"
+    },
+    "note": "synthetic LLM-generated bodies; phishing signal mostly in URL/sender (per benchmark authors)"
+  },
+  "protocol": {
+    "emails_shuffle_seed": 20260916,
+    "split": "stratified halves A/B, numpy default_rng(20260917) - identical to bench/protocol.py",
+    "split_verified_by": "heuristic single rule on our half B = 0.9180, published 0.918",
+    "train": "800 (400 phishing / 400 legitimate) from half A, seed 0x9E3779B9",
+    "val": "200 (100/100) from half A, for temperature scaling",
+    "test": "half B, 1000 (500/500) - same eval set as published controls",
+    "leakage_check": "no id appears in more than one split",
+    "model": "gavel LogisticEngine defaults: lr 0.3, 25 epochs, L2 1e-5, 2^14 FNV-1a hashed BoW, train seed 0xC0FFEE",
+    "input_serialization": "from: {from} sender: {sender} subject: {subject} link_text: {link_display_text} link_url: {link_url} body: {body}",
+    "calibration": "temperature scaling, grid T in [0.05, 10] minimizing NLL on val",
+    "ece_binning": "10 equal-width bins over [0.5, 1.0] on predicted-class confidence (exactly analyze.py)",
+    "auroc": "Mann-Whitney with tie-averaged ranks (exactly analyze.py)"
+  },
+  "gavel": {
+    "accuracy": 0.997,
+    "ask_latency_us": {
+      "mean": 12.89631499999999,
+      "p50": 11.247,
+      "p99": 24.988
+    },
+    "auroc": 0.996994,
+    "calibrate_ms": 250.513498,
+    "ece_after_calibration": 1.364358352986983e-05,
+    "ece_before_calibration": 0.002443283527444967,
+    "ece_gavel_binning": 0.0029963197454603687,
+    "ece_reference_binning": 0.0029963197454603687,
+    "f1": 0.9970089730807578,
+    "false_positive_rate": 0.006,
+    "fn": 0,
+    "fp": 3,
+    "n_test": 1000,
+    "n_train": 800,
+    "n_val": 200,
+    "precision": 0.9940357852882704,
+    "recall_phishing": 1.0,
+    "temperature": 0.05,
+    "tn": 497,
+    "tp": 500,
+    "train_ms": 127.07915799999999
+  },
+  "gavel_ablations": {
+    "url_sender_only": {
+      "accuracy": 0.991,
+      "auroc": 1.0,
+      "recall_phishing": 0.982,
+      "false_positive_rate": 0.0
+    },
+    "body_only": {
+      "accuracy": 0.99,
+      "auroc": 0.9991,
+      "recall_phishing": 0.994,
+      "false_positive_rate": 0.014
+    }
+  },
+  "published": {
+    "source": "jev-phishing-bench results/metrics.json + README.md, dated 2026-09-17; NOT re-run here",
+    "jev_1_13_0_headline_n2000": {
+      "accuracy": 0.626,
+      "accuracy_ci": [
+        0.6046,
+        0.6469
+      ],
+      "recall_phishing": 0.432,
+      "false_positive_rate": 0.18,
+      "auroc": 0.6885,
+      "ece": 0.1536,
+      "latency_p50_ms": 239,
+      "cost_per_1000_usd": 0.038,
+      "note": "zero-shot, no training on this data"
+    },
+    "haiku_4_5_headline_n2000": {
+      "accuracy": 0.813,
+      "accuracy_ci": [
+        0.795,
+        0.829
+      ],
+      "recall_phishing": 0.764,
+      "false_positive_rate": 0.138,
+      "auroc": 0.8368,
+      "ece": 0.0971,
+      "latency_p50_ms": 687,
+      "cost_per_1000_usd": 0.462,
+      "note": "zero-shot"
+    },
+    "half_B_controls": {
+      "jev_signals_logistic": {
+        "accuracy": 0.95,
+        "accuracy_ci": [
+          0.9347,
+          0.9619
+        ],
+        "auroc": 0.9825,
+        "ece": 0.0243,
+        "note": "trained on half A (1000), eval half B"
+      },
+      "haiku_signals_logistic": {
+        "accuracy": 0.932,
+        "accuracy_ci": [
+          0.9147,
+          0.946
+        ],
+        "auroc": 0.9911,
+        "note": "trained on half A (1000), eval half B"
+      },
+      "heuristic_2feat_logistic": {
+        "accuracy": 0.918,
+        "auroc": 0.9374,
+        "ece": 0.0062
+      },
+      "heuristic_list_rule_all2000": {
+        "accuracy": 0.916,
+        "recall_phishing": 0.835,
+        "false_positive_rate": 0.002,
+        "note": "no fitting at all"
+      }
+    }
+  },
+  "caveats": [
+    "Jev/Haiku headline numbers are zero-shot; gavel is supervised (800 labeled train). Fair peer is the supervised half-B controls.",
+    "Dataset separates by construction (benchmark authors' own finding); 99.7% reflects BoW memorizing distinctive URL/sender/lure tokens, not phishing understanding.",
+    "Email bodies are synthetic LLM-generated; body-only ablation at 99.0% suggests distributional tells. Real-world generalization unproven.",
+    "Published Jev/Haiku numbers were not re-run; taken from their 2026-09-17 report.",
+    "Latency: gavel measured in-process on this VM; Jev/Haiku measured France->US incl. network. The valid claim is 'no network hop', not a like-for-like inference speedup.",
+    "Cost $0 = marginal self-hosted cost (own hardware), not zero TCO.",
+    "Approach (b) (five signal questions as features) not reproduced: those are Jev API outputs, raw files not published, no TypeSafe API key available."
+  ]
+}
