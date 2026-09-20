@@ -1,0 +1,13 @@
+[package]
+name = "decide-tfidf"
+version = "0.1.0"
+edition = "2021"
+description = "Native-Rust TF-IDF + logistic-regression inference engine with energy-based abstention"
+license = "MIT"
+repository = "https://github.com/syedsohailhussain1/gavel"
+keywords = ["decision", "classification", "tfidf", "ood", "agents"]
+
+[dependencies]
+decide-core = { path = "../decide-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -1,0 +1,34 @@
+{
+  "classes": [
+    "billing",
+    "shipping",
+    "returns",
+    "account",
+    "technical",
+    "feedback"
+  ],
+  "cross_class_noise": 0.15,
+  "dataset": "synthetic",
+  "metrics": {
+    "accuracy": 0.998,
+    "calibrate_wall_time_ms": 103.792388,
+    "ece_after_calibration": 0.0019523699830747204,
+    "ece_before_calibration": 0.004006599579374348,
+    "latency_mean": 3.177036,
+    "latency_p50": 2.774,
+    "latency_p99": 4.687,
+    "latency_unit": "µs",
+    "qps": 308597.1144318218,
+    "temperature_after_calibrate": 0.6394322837504216,
+    "train_wall_time_ms": 37.586138999999996
+  },
+  "name": "decide-bench",
+  "seed": "0x123456789abcdef1",
+  "sizes": {
+    "test": 1000,
+    "train": 2000,
+    "validation": 500
+  },
+  "timestamp_unix": 1789920270,
+  "version": "0.1.0"
+}

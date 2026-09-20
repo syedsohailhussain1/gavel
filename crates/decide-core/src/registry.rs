@@ -6,7 +6,10 @@
 //! model failed to load) falls back to the M0 [`MockEngine`] stub so the
 //! original define/ask behavior is preserved.
 
-use crate::{DecideError, Decision, Engine, LogisticEngine, MockEngine, Policy, Question};
+use crate::{
+    DecideError, Decision, Engine, LogisticEngine, MockEngine, NoulDecision, NoulQuestion, Policy,
+    Question,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -136,6 +139,46 @@ impl Registry {
         }
     }
 
+    /// Answer a Noul (yes/no) question as a one-vs-rest projection of the
+    /// choice distribution: `p_true` is the calibrated probability of
+    /// `noul.class` (see [`NoulDecision`] for the honest limits of this).
+    ///
+    /// Errors when the question is unknown, when no trained engine serves
+    /// it (the mock stub has no distribution), when the engine cannot expose
+    /// class probabilities, or when `noul.class` is not one of the model's
+    /// classes. The question's policy — including the energy abstention
+    /// gate — applies exactly as for Choice answers.
+    pub fn noul_answer(
+        &self,
+        name: &str,
+        noul: &NoulQuestion,
+        input: &serde_json::Value,
+    ) -> Result<NoulDecision, DecideError> {
+        let question = self.question(name)?;
+        let dist = match self.engines.get(name) {
+            Some(engine) if engine.is_trained() => engine.scored_distribution(question, input)?,
+            _ => {
+                return Err(DecideError::EngineError(format!(
+                    "noul: question \"{name}\" has no trained engine exposing \
+                     class probabilities"
+                )))
+            }
+        };
+        let p_true = dist.prob_of(&noul.class).ok_or_else(|| {
+            DecideError::EngineError(format!(
+                "noul: class {:?} is not one of the model classes {:?}",
+                noul.class, dist.classes
+            ))
+        })?;
+        NoulDecision::from_class_probability(
+            noul.id.clone(),
+            noul.statement.clone(),
+            p_true,
+            dist.energy,
+            &question.policy,
+        )
+    }
+
     pub fn question_names(&self) -> Vec<String> {
         let mut names: Vec<String> = self.questions.keys().cloned().collect();
         names.sort();
@@ -200,5 +243,80 @@ mod tests {
         assert!(reg.ask("nope", &json!({})).is_err());
         assert!(reg.train("nope", &[]).is_err());
         assert!(reg.metrics("nope").is_err());
+    }
+
+    fn trained_registry() -> Registry {
+        let mut reg = registry();
+        reg.define_question(
+            "triage".into(),
+            json!({"type": "string"}),
+            json!({"type": "string"}),
+            Policy::new(0.85, 0.5, 0.85).unwrap(),
+        );
+        let examples: Vec<(String, String)> = vec![
+            ("crash error exception stacktrace".into(), "bug".into()),
+            ("null pointer panic segfault".into(), "bug".into()),
+            ("add feature request dark mode".into(), "feature".into()),
+            ("please add export button".into(), "feature".into()),
+        ];
+        reg.train("triage", &examples).unwrap();
+        reg
+    }
+
+    fn noul(id: &str, class: &str) -> NoulQuestion {
+        NoulQuestion {
+            id: id.into(),
+            statement: format!("this is {class}"),
+            class: class.into(),
+        }
+    }
+
+    #[test]
+    fn noul_answer_projects_trained_distribution() {
+        let reg = trained_registry();
+        let d = reg
+            .noul_answer(
+                "triage",
+                &noul("is_bug", "bug"),
+                &json!("crash error panic"),
+            )
+            .unwrap();
+        assert_eq!(d.id, "is_bug");
+        assert_eq!(d.kind, "noul");
+        assert!((0.0..=1.0).contains(&d.p_true));
+        assert_eq!(d.prediction, "yes");
+        // One-vs-rest honesty: p_true for bug + p_true for feature = 1.
+        let d2 = reg
+            .noul_answer(
+                "triage",
+                &noul("is_feature", "feature"),
+                &json!("crash error panic"),
+            )
+            .unwrap();
+        assert!((d.p_true + d2.p_true - 1.0).abs() < 1e-9);
+        assert_eq!(d2.prediction, "no");
+    }
+
+    #[test]
+    fn noul_answer_rejects_unknown_class_and_untrained() {
+        let reg = trained_registry();
+        let err = reg
+            .noul_answer("triage", &noul("x", "nope"), &json!("hi"))
+            .expect_err("unknown class must fail");
+        assert!(err.to_string().contains("not one of the model classes"));
+        // Untrained question falls back to the mock, which has no distribution.
+        let mut reg2 = registry();
+        reg2.define_question(
+            "q".into(),
+            json!({"type": "object"}),
+            json!({"type": "object"}),
+            Policy::default_policy(),
+        );
+        assert!(reg2
+            .noul_answer("q", &noul("x", "bug"), &json!("hi"))
+            .is_err());
+        assert!(reg2
+            .noul_answer("missing", &noul("x", "bug"), &json!("hi"))
+            .is_err());
     }
 }

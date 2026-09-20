@@ -150,12 +150,16 @@ impl DecideEngine {
             Action::Act => "act",
             Action::Review => "review",
             Action::Escalate => "escalate",
+            Action::Abstain => "abstain",
         };
-        let out = serde_json::json!({
+        let mut out = serde_json::json!({
             "output": decision.output,
             "confidence": decision.confidence,
             "action": action_str,
         });
+        if let Some(e) = decision.energy {
+            out["energy"] = serde_json::json!(e);
+        }
         serde_json::to_string(&out).map_err(|e| napi::Error::from_reason(e.to_string()))
     }
 

@@ -37,7 +37,7 @@ function loadBinding(): any {
 
 const binding = loadBinding();
 
-export type Action = "act" | "review" | "escalate";
+export type Action = "act" | "review" | "escalate" | "abstain";
 
 export interface Policy {
   /** Act when confidence >= actAbove (default 0.9). */
@@ -46,6 +46,8 @@ export interface Policy {
   reviewLow: number;
   /** Upper bound of the review band (default 0.9). */
   reviewHigh: number;
+  /** Abstain when the engine's energy score exceeds this (optional; TF-IDF engine). */
+  abstainEnergyAbove?: number;
 }
 
 export const DEFAULT_POLICY: Policy = { actAbove: 0.9, reviewLow: 0.6, reviewHigh: 0.9 };
@@ -64,6 +66,8 @@ export interface Decision<TOutput = unknown> {
   /** Calibrated confidence in [0, 1]. */
   confidence: number;
   action: Action;
+  /** Energy score when the engine computes one (higher = less like the task). */
+  energy?: number;
 }
 
 export interface EngineOptions {

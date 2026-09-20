@@ -1,3 +1,3 @@
 [workspace]
-members = ["crates/decide-core", "crates/decide-napi", "crates/decide-bench", "crates/decide-server", "crates/decide-phishing", "crates/decide-onnx"]
+members = ["crates/decide-core", "crates/decide-napi", "crates/decide-bench", "crates/decide-server", "crates/decide-phishing", "crates/decide-onnx", "crates/decide-tfidf"]
 resolver = "2"

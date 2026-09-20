@@ -14,5 +14,6 @@ path = "src/main.rs"
 [dependencies]
 decide-core = { path = "../decide-core" }
 decide-onnx = { path = "../decide-onnx" }
+decide-tfidf = { path = "../decide-tfidf" }
 serde_json = "1"
 tiny_http = "0.12"

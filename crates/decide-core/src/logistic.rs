@@ -373,6 +373,21 @@ impl Engine for LogisticEngine {
         )
     }
 
+    fn scored_distribution(
+        &self,
+        _question: &Question,
+        input: &serde_json::Value,
+    ) -> Result<crate::ScoredDistribution, DecideError> {
+        let (_, _, probs) = self.predict(&extract_text(input))?;
+        Ok(crate::ScoredDistribution {
+            classes: self.classes.clone(),
+            probabilities: probs,
+            // The hashed-BOW logistic engine has no OOD score; Noul answers
+            // from it skip the energy abstention gate (None disables it).
+            energy: None,
+        })
+    }
+
     fn train(&mut self, examples: &[(String, String)]) -> Result<(), DecideError> {
         LogisticEngine::train(self, examples)
     }
