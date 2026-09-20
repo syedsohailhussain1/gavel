@@ -21,6 +21,11 @@
 
 ¹ Wilson 95% interval, matching the benchmark's reporting style.
 
+![Accuracy: gavel vs published zero-shot numbers](../charts/accuracy_headline.png)
+![Calibration error: gavel vs published numbers](../charts/calibration_ece.png)
+![Latency per decision](../charts/latency.png)
+![Cost per 1,000 decisions](../charts/cost.png)
+
 ## The fair fight: supervised baselines on the same half-B split
 
 Jev's headline number is zero-shot, so the honest peer group is the benchmark's own supervised controls — all trained on half A, evaluated on half B (n = 1000), exactly the split replicated here:
@@ -32,6 +37,8 @@ Jev's headline number is zero-shot, so the honest peer group is the benchmark's 
 | ECE | **0.003** | 0.024 | — | 0.006 |
 
 Gavel's interval [99.1, 99.9] does not overlap the best published supervised baseline [93.5, 96.2]. On this dataset and split, an open bag-of-words model beats the regression built on Jev's own signal outputs.
+
+![Accuracy: supervised models on the same split](../charts/accuracy_supervised.png)
 
 ## What was actually run
 
