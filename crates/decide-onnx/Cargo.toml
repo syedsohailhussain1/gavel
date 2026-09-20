@@ -1,0 +1,25 @@
+[package]
+name = "decide-onnx"
+version = "0.1.0"
+edition = "2021"
+description = "ONNX Runtime inference engine for gavel (M3): distilled small-LM classifiers behind the Engine trait"
+license = "MIT"
+repository = "https://github.com/syedsohailhussain1/gavel"
+keywords = ["decision", "classification", "onnx", "inference", "agents"]
+
+[dependencies]
+decide-core = { path = "../decide-core" }
+ort = "2.0.0-rc.13"
+ndarray = "0.16"
+serde_json = "1"
+tokenizers = { version = "0.21", optional = true }
+
+[features]
+default = []
+# Tokenizer-based input mode (HuggingFace tokenizer.json -> input_ids +
+# attention_mask). Off by default: the `tokenizers` dependency tree is heavy,
+# and the HashedBow mode covers the common case.
+tokenizers = ["dep:tokenizers"]
+
+[dev-dependencies]
+serde_json = "1"

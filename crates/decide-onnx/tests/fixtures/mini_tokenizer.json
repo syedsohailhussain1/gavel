@@ -1,0 +1,1 @@
+{"added_tokens":[],"decoder":null,"model":{"type":"WordLevel","unk_token":"[UNK]","vocab":{"[UNK]":0,"hello":1,"refund":3,"world":2}},"normalizer":{"type":"Lowercase"},"padding":null,"post_processor":null,"pre_tokenizer":{"type":"WhitespaceSplit"},"truncation":null,"version":"1.0"}

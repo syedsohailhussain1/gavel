@@ -1,7 +1,10 @@
 // gavel-server (M5-lite): minimal HTTP server exposing decide-core as JSON.
 //
 // Endpoints:
-//   POST /define    {"name","inputSchema","outputSchema","policy"?} -> {"ok":true}
+//   POST /define    {"name","inputSchema","outputSchema","policy"?,"engine"?} -> {"ok":true}
+//                   engine: "logistic" (default) or
+//                   {"onnx":{"model":"...onnx","tokenizer":"...json"?,
+//                            "labels":[...],"maxLength":512?,"temperature":1.0?}}
 //   POST /train     {"question","examples":[{"input","label"}]}      -> {"ok":true}
 //   POST /calibrate {"question","validation":[{"input","label"}]}    -> {"ok":true}
 //   POST /ask       {"question","input"}                            -> Decision JSON
@@ -11,7 +14,8 @@
 // All errors are JSON {"error":"..."} with HTTP 400. Requests are handled
 // sequentially; shared state is guarded by a Mutex. Binds 0.0.0.0:7575.
 
-use decide_core::{extract_text, Policy, Registry};
+use decide_core::{extract_text, Engine, Policy, Registry};
+use decide_onnx::{OnnxConfig, OnnxEngine};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::sync::Mutex;
@@ -75,6 +79,38 @@ fn parse_policy(v: &Value) -> Result<Policy, String> {
                 .map_err(|e| format!("invalid policy: {e}"))
         }
     }
+}
+
+/// Parse `{"model": "...onnx", "tokenizer": "...json"?, "labels": [...],
+/// "maxLength": n?, "temperature": t?}` into an [`OnnxConfig`].
+fn parse_onnx_config(v: &Value) -> Result<OnnxConfig, String> {
+    let model = field_str(v, "model")
+        .map_err(|_| "engine.onnx: missing required field \"model\" (path to .onnx file)")?
+        .to_string();
+    let labels: Vec<String> = v
+        .get("labels")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            "engine.onnx: missing required field \"labels\" (array of strings)".to_string()
+        })?
+        .iter()
+        .map(|l| {
+            l.as_str()
+                .map(|s| s.to_string())
+                .ok_or_else(|| "engine.onnx: every label must be a string".to_string())
+        })
+        .collect::<Result<_, _>>()?;
+    let mut cfg = OnnxConfig::new(model, labels).map_err(|e| e.to_string())?;
+    if let Some(tok) = v.get("tokenizer").and_then(Value::as_str) {
+        cfg.tokenizer_path = Some(tok.into());
+    }
+    if let Some(n) = v.get("maxLength").and_then(Value::as_u64) {
+        cfg.max_length = n.max(1) as usize;
+    }
+    if let Some(t) = v.get("temperature").and_then(Value::as_f64) {
+        cfg.temperature = t;
+    }
+    Ok(cfg)
 }
 
 /// Convert `[{"input": <any>, "label": "<str>"}]` into (text, label) pairs.
@@ -155,10 +191,49 @@ fn handle(mut req: Request, registry: &Mutex<Registry>) {
                         .cloned()
                         .unwrap_or_else(|| json!({}));
                     let policy = parse_policy(&body)?;
-                    registry
+                    // Engine selection. Logistic is the default; an "onnx"
+                    // object loads an ONNX model via decide-onnx. If the model
+                    // fails to load, warn on stderr and fall back to logistic
+                    // — the server never refuses to serve a question.
+                    let engine: Option<Box<dyn Engine>> = match body.get("engine") {
+                        None | Some(serde_json::Value::String(_)) => match body.get("engine") {
+                            Some(serde_json::Value::String(s)) if s != "logistic" => {
+                                return Err(format!(
+                                    "unknown engine \"{s}\"; expected \"logistic\" or {{\"onnx\": ...}}"
+                                ))
+                            }
+                            _ => None,
+                        },
+                        Some(obj) => {
+                            let onnx = obj.get("onnx").ok_or_else(|| {
+                                "engine must be \"logistic\" or {\"onnx\": {...}}".to_string()
+                            })?;
+                            let cfg = parse_onnx_config(onnx)?;
+                            match OnnxEngine::load(&cfg) {
+                                Ok(e) => Some(Box::new(e)),
+                                Err(err) => {
+                                    eprintln!(
+                                        "warn: onnx engine failed to load ({err}); \
+                                         falling back to logistic for question \"{name}\""
+                                    );
+                                    None
+                                }
+                            }
+                        }
+                    };
+                    let mut registry = registry
                         .lock()
-                        .map_err(|e| format!("state lock poisoned: {e}"))?
-                        .define_question(name, input_schema, output_schema, policy);
+                        .map_err(|e| format!("state lock poisoned: {e}"))?;
+                    match engine {
+                        Some(e) => registry.define_question_with_engine(
+                            name,
+                            input_schema,
+                            output_schema,
+                            policy,
+                            e,
+                        ),
+                        None => registry.define_question(name, input_schema, output_schema, policy),
+                    }
                     Ok(())
                 })();
                 match result {

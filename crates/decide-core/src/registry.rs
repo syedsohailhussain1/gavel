@@ -1,8 +1,9 @@
 //! registry.rs — per-question engine registry.
 //!
 //! Shared by the Node bindings and the HTTP server: holds registered
-//! questions plus one [`LogisticEngine`] per question. A question that has
-//! never been trained falls back to the M0 [`MockEngine`] stub so the
+//! questions plus one [`Engine`] per question (boxed, so logistic and ONNX
+//! engines coexist). A question whose engine is not ready (never trained,
+//! model failed to load) falls back to the M0 [`MockEngine`] stub so the
 //! original define/ask behavior is preserved.
 
 use crate::{DecideError, Decision, Engine, LogisticEngine, MockEngine, Policy, Question};
@@ -21,12 +22,24 @@ pub struct EngineMetrics {
     pub ece_after: Option<f64>,
 }
 
-/// Owns questions and their trained engines.
-#[derive(Debug)]
+/// Owns questions and their engines.
+///
+/// `Box<dyn Engine>` (rather than a concrete engine type) so that M1's
+/// logistic engine and M3's ONNX engine — and any future engine — can serve
+/// side by side. `Send` is required by the N-API binding.
 pub struct Registry {
     questions: HashMap<String, Question>,
-    engines: HashMap<String, LogisticEngine>,
+    engines: HashMap<String, Box<dyn Engine>>,
     mock: MockEngine,
+}
+
+impl std::fmt::Debug for Registry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Registry")
+            .field("questions", &self.question_names())
+            .field("mock", &self.mock)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Registry {
@@ -54,7 +67,26 @@ impl Registry {
         output_schema: serde_json::Value,
         policy: Policy,
     ) {
-        self.engines.insert(name.clone(), LogisticEngine::new());
+        self.define_question_with_engine(
+            name,
+            input_schema,
+            output_schema,
+            policy,
+            Box::new(LogisticEngine::new()),
+        );
+    }
+
+    /// Register a question served by a caller-supplied engine
+    /// (e.g. an [`Engine`] implementation from decide-onnx).
+    pub fn define_question_with_engine(
+        &mut self,
+        name: String,
+        input_schema: serde_json::Value,
+        output_schema: serde_json::Value,
+        policy: Policy,
+        engine: Box<dyn Engine>,
+    ) {
+        self.engines.insert(name.clone(), engine);
         self.questions.insert(
             name.clone(),
             Question {
@@ -91,17 +123,11 @@ impl Registry {
             .engines
             .get(name)
             .ok_or_else(|| DecideError::UnknownQuestion(name.to_string()))?;
-        Ok(EngineMetrics {
-            trained: engine.is_trained(),
-            classes: engine.classes().to_vec(),
-            temperature: engine.temperature(),
-            ece_before: engine.ece_before(),
-            ece_after: engine.ece_after(),
-        })
+        Ok(engine.engine_metrics())
     }
 
-    /// Ask a question. Uses the trained [`LogisticEngine`] when available,
-    /// otherwise the M0 mock stub.
+    /// Ask a question. Uses the question's engine when it is ready
+    /// (trained / model loaded), otherwise the M0 mock stub.
     pub fn ask(&self, name: &str, input: &serde_json::Value) -> Result<Decision, DecideError> {
         let question = self.question(name)?;
         match self.engines.get(name) {

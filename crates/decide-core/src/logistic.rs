@@ -45,6 +45,20 @@ fn featurize(text: &str) -> Vec<(usize, f64)> {
     feats
 }
 
+/// Dense hashed bag-of-words features: TF counts scattered into `N_BUCKETS`
+/// buckets, as `f32`.
+///
+/// Public so other engine crates (e.g. decide-onnx's `HashedBow` input mode)
+/// hash text *identically* to the logistic engine instead of reimplementing
+/// the featurizer and risking divergence.
+pub fn hashed_bow_dense(text: &str) -> Vec<f32> {
+    let mut dense = vec![0.0f32; N_BUCKETS];
+    for (b, x) in featurize(text) {
+        dense[b] = x as f32;
+    }
+    dense
+}
+
 /// Deterministic xorshift64* PRNG (for reproducible shuffling).
 struct Rng(u64);
 
@@ -87,12 +101,45 @@ impl Default for TrainConfig {
     }
 }
 
-fn softmax(logits: &[f64], temperature: f64) -> Vec<f64> {
+/// Softmax with temperature scaling: `softmax_scaled(logits / temperature)`.
+///
+/// Public so other engine crates can apply the same M2 calibration math to
+/// their own logits (see [`fit_temperature`]).
+pub fn softmax_scaled(logits: &[f64], temperature: f64) -> Vec<f64> {
     let scaled: Vec<f64> = logits.iter().map(|l| l / temperature).collect();
     let max = scaled.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let exps: Vec<f64> = scaled.iter().map(|l| (l - max).exp()).collect();
     let sum: f64 = exps.iter().sum();
     exps.iter().map(|e| e / sum).collect()
+}
+
+/// Fit a temperature scalar for temperature scaling (the M2 recipe).
+///
+/// Grid-searches `T` in `[0.05, 10]` (80 log-spaced points), minimizing the
+/// mean negative log-likelihood of `targets` under `softmax_scaled(logits / T)`.
+/// Works over raw logit sets from *any* engine — the logistic engine and the
+/// ONNX engine share this exact search.
+pub fn fit_temperature(logit_sets: &[Vec<f64>], targets: &[usize]) -> f64 {
+    debug_assert_eq!(logit_sets.len(), targets.len());
+    let nll = |temperature: f64| {
+        let mut total = 0.0;
+        for (logits, y) in logit_sets.iter().zip(targets.iter()) {
+            let probs = softmax_scaled(logits, temperature);
+            total += -probs[*y].clamp(1e-15, 1.0).ln();
+        }
+        total / logit_sets.len() as f64
+    };
+    let mut best_t = 1.0;
+    let mut best_nll = f64::INFINITY;
+    for i in 0..80 {
+        let t = 0.05 * 200f64.powf(i as f64 / 79.0);
+        let n = nll(t);
+        if n < best_nll {
+            best_nll = n;
+            best_t = t;
+        }
+    }
+    best_t
 }
 
 /// Multinomial logistic regression classifier.
@@ -201,7 +248,7 @@ impl LogisticEngine {
         for epoch in 0..self.config.epochs {
             Rng(self.config.seed.wrapping_add(epoch as u64)).shuffle(&mut order);
             for &i in &order {
-                let probs = softmax(&logits(&weights, &bias, &feats[i]), 1.0);
+                let probs = softmax_scaled(&logits(&weights, &bias, &feats[i]), 1.0);
                 let y = targets[i];
                 for c in 0..n_classes {
                     let err = probs[c] - if c == y { 1.0 } else { 0.0 };
@@ -237,7 +284,7 @@ impl LogisticEngine {
                 "predict: engine has not been trained yet".into(),
             ));
         }
-        let probs = softmax(
+        let probs = softmax_scaled(
             &logits(&self.weights, &self.bias, &featurize(text)),
             self.temperature,
         );
@@ -260,18 +307,6 @@ impl LogisticEngine {
             correct.push(pred == *y);
         }
         (confs, correct)
-    }
-
-    fn nll(&self, texts: &[String], targets: &[usize], temperature: f64) -> f64 {
-        let mut total = 0.0;
-        for (t, y) in texts.iter().zip(targets.iter()) {
-            let probs = softmax(
-                &logits(&self.weights, &self.bias, &featurize(t)),
-                temperature,
-            );
-            total += -probs[*y].clamp(1e-15, 1.0).ln();
-        }
-        total / texts.len() as f64
     }
 
     /// Fit temperature scaling on held-out validation examples.
@@ -315,18 +350,12 @@ impl LogisticEngine {
         let (confs, correct) = self.predict_batch(&texts, &targets);
         self.ece_before = Some(expected_calibration_error(&confs, &correct, 10));
 
-        // Grid search for the NLL-minimizing temperature.
-        let mut best_t = 1.0;
-        let mut best_nll = f64::INFINITY;
-        for i in 0..80 {
-            let t = 0.05 * 200f64.powf(i as f64 / 79.0);
-            let nll = self.nll(&texts, &targets, t);
-            if nll < best_nll {
-                best_nll = nll;
-                best_t = t;
-            }
-        }
-        self.temperature = best_t;
+        // Grid search for the NLL-minimizing temperature (shared M2 recipe).
+        let logit_sets: Vec<Vec<f64>> = texts
+            .iter()
+            .map(|t| logits(&self.weights, &self.bias, &featurize(t)))
+            .collect();
+        self.temperature = fit_temperature(&logit_sets, &targets);
 
         let (confs_c, correct_c) = self.predict_batch(&texts, &targets);
         self.ece_after = Some(expected_calibration_error(&confs_c, &correct_c, 10));
@@ -342,6 +371,28 @@ impl Engine for LogisticEngine {
             conf,
             &question.policy,
         )
+    }
+
+    fn train(&mut self, examples: &[(String, String)]) -> Result<(), DecideError> {
+        LogisticEngine::train(self, examples)
+    }
+
+    fn calibrate(&mut self, validation: &[(String, String)]) -> Result<(), DecideError> {
+        LogisticEngine::calibrate(self, validation)
+    }
+
+    fn is_trained(&self) -> bool {
+        self.trained
+    }
+
+    fn engine_metrics(&self) -> crate::EngineMetrics {
+        crate::EngineMetrics {
+            trained: self.trained,
+            classes: self.classes.clone(),
+            temperature: self.temperature,
+            ece_before: self.ece_before,
+            ece_after: self.ece_after,
+        }
     }
 }
 

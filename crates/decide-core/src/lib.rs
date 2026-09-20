@@ -13,7 +13,8 @@ pub mod logistic;
 pub mod registry;
 
 pub use logistic::{
-    expected_calibration_error, extract_text, LogisticEngine, TrainConfig, N_BUCKETS,
+    expected_calibration_error, extract_text, fit_temperature, hashed_bow_dense, softmax_scaled,
+    LogisticEngine, TrainConfig, N_BUCKETS,
 };
 pub use registry::{EngineMetrics, Registry};
 
@@ -153,8 +154,56 @@ impl std::error::Error for DecideError {}
 
 /// Inference engine interface. Real engines (embed+classify, distilled LM)
 /// implement this trait; M0 ships a [`MockEngine`] for wiring and tests.
-pub trait Engine {
+///
+/// `Send` is required so engines can live in a shared [`Registry`] behind a
+/// mutex (the HTTP server) or cross into Node.js threads (the N-API binding).
+///
+/// Beyond [`Engine::ask`], the trait carries defaulted lifecycle methods so
+/// a registry can hold `Box<dyn Engine>` without knowing the engine kind:
+/// - [`Engine::train`] / [`Engine::calibrate`] — overridden by trainable
+///   engines; the default refuses with a clear error, which is the correct
+///   behavior for inference-only engines (e.g. a loaded ONNX model — train
+///   it offline, then load the artifact).
+/// - [`Engine::is_trained`] — whether `ask` will produce a real decision.
+/// - [`Engine::engine_metrics`] — the `/metrics` snapshot.
+pub trait Engine: Send {
     fn ask(&self, question: &Question, input: &serde_json::Value) -> Result<Decision, DecideError>;
+
+    /// Train on labeled (text, label) examples.
+    ///
+    /// Default: refuse. Inference-only engines keep this default; the error
+    /// message tells the caller where training actually happens.
+    fn train(&mut self, _examples: &[(String, String)]) -> Result<(), DecideError> {
+        Err(DecideError::EngineError(
+            "train: this engine is inference-only; train the model offline and load the resulting artifact".into(),
+        ))
+    }
+
+    /// Fit calibration (temperature scaling) on held-out validation examples.
+    ///
+    /// Default: refuse. Engines that support post-hoc calibration override this.
+    fn calibrate(&mut self, _validation: &[(String, String)]) -> Result<(), DecideError> {
+        Err(DecideError::EngineError(
+            "calibrate: this engine does not support calibration".into(),
+        ))
+    }
+
+    /// Whether the engine is ready to answer (trained, or model loaded).
+    /// Unready engines make the registry fall back to the mock stub.
+    fn is_trained(&self) -> bool {
+        false
+    }
+
+    /// Status snapshot for `/metrics`.
+    fn engine_metrics(&self) -> EngineMetrics {
+        EngineMetrics {
+            trained: self.is_trained(),
+            classes: Vec::new(),
+            temperature: 1.0,
+            ece_before: None,
+            ece_after: None,
+        }
+    }
 }
 
 /// Stub engine returning a fixed decision + confidence. Useful for

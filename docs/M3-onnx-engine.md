@@ -1,123 +1,110 @@
-# M3 — Distilled-LM / ONNX Engine (design doc, no implementation)
+# M3 — Distilled-LM / ONNX Engine (inference core shipped)
 
-**Status:** deferred by design. This document records *why* M3 waits, what the
-integration seam already looks like, and what has to be true before we build it.
+**Status:** shipped as an inference core (`crates/decide-onnx`). The engine
+trait, registry, and HTTP server all speak ONNX today; what is *not* yet built
+is the distillation pipeline that produces a production-grade model (teacher
+labeling → fine-tune → export → quantize). See "Still ahead" below.
 
-## Why deferred
+## What shipped
 
-1. **Keep M1/M2 dependency-free.** The current engine is multinomial logistic
-   regression on hashed bag-of-words features in pure Rust — no weights to
-   download, no ONNX runtime, no tokenizer, builds in seconds. Shipping a
-   distilled-LM engine now would trade that away before we know it's worth it.
-2. **We need real usage data first.** Distillation needs a teacher and a
-   dataset of representative inputs. Until gavel-server sees real traffic,
-   we'd be distilling against synthetic data and guessing at the input
-   distribution — a good way to build a worse model with extra steps.
-3. **The M4 eval harness comes first.** M3 must be judged against the M1
-   baseline on identical datasets (accuracy, latency, ECE). Building the
-   engine before the harness exists means building without a scoreboard.
+- **`crates/decide-onnx`** — `OnnxEngine` behind the same `Engine` trait as
+  the logistic engine. Real `ort` (2.0.0-rc.x) inference, `Mutex<Session>`
+  for shared use.
+- **Required input mode: `HashedBow`.** Text is hashed with decide-core's
+  FNV-1a bag-of-words featurizer (`hashed_bow_dense`) into one
+  `[1, 16384]` float32 tensor. The model must accept a single float32 input
+  of that shape.
+- **Optional input mode: `TokenIds`** (cargo feature `tokenizers`):
+  a HuggingFace `tokenizer.json` produces `input_ids` + `attention_mask`
+  int64 tensors of shape `[1, max_length]`.
+- **Schema-constrained output.** The label set is the output schema: `ask`
+  runs the session, applies softmax (+ temperature), and takes the argmax
+  **over the configured labels**. The engine is structurally incapable of
+  emitting anything else — no free-form generation, no retry loop.
+- **Calibration.** `calibrate()` runs validation samples through the model
+  and fits temperature with decide-core's shared `fit_temperature`
+  (the same M2 grid recipe).
+- **Inference-only contract.** `train()` refuses with a clear error —
+  train the model offline, load the artifact.
+- **Server selection with graceful fallback.** `POST /define` accepts
+  `"engine": "logistic"` (default) or
+  `{"onnx": {"model": "...onnx", "tokenizer": "...json"?, "labels": [...],
+  "maxLength": 512?, "temperature": 1.0?}}`. If the model fails to load, the
+  server prints a stderr warning and defines the question with the logistic
+  engine — it never refuses to serve.
 
-M3 starts when: (a) decide-bench is green and publishing numbers, (b) we have
-a corpus of real inputs worth distilling against, and (c) a candidate model
-beats the logistic baseline on that harness by enough to justify the
-dependency weight.
+## What changed from the original design
 
-## The seam already exists: the `Engine` trait
-
-No trait change is needed. Today in `decide-core`:
+The original design said "no trait change is needed". In practice the
+registry needed to be engine-agnostic, so the trait grew object-safe
+lifecycle methods with sensible defaults:
 
 ```rust
-pub trait Engine {
-    fn ask(&self, question: &Question, input: &serde_json::Value) -> Result<Decision, DecideError>;
+pub trait Engine: Send {
+    fn ask(&self, question: &Question, input: &serde_json::Value)
+        -> Result<Decision, DecideError>;
+    // defaulted: train / calibrate refuse (inference-only),
+    // is_trained -> false, engine_metrics -> empty snapshot
+    fn train(&mut self, examples: &[(String, String)]) -> Result<(), DecideError>;
+    fn calibrate(&mut self, validation: &[(String, String)]) -> Result<(), DecideError>;
+    fn is_trained(&self) -> bool;
+    fn engine_metrics(&self) -> EngineMetrics;
 }
 ```
 
-A future ONNX engine is just another implementor:
+`Registry` now holds `HashMap<String, Box<dyn Engine>>` plus
+`define_question_with_engine(...)`; the original `define_question(...)`
+still creates a logistic engine, so existing callers are untouched. The
+"never trained → mock stub" fallback is preserved: `is_trained()` is false
+for an untrained logistic engine and true for a loaded ONNX model.
 
-```rust
-pub struct OnnxEngine { /* session, tokenizer, label map, temperature */ }
+Open question #5 from the original doc (fallback story) is settled:
+**fall back to logistic, warn loudly, keep serving.**
 
-impl Engine for OnnxEngine {
-    fn ask(&self, question: &Question, input: &Value) -> Result<Decision, DecideError> {
-        let text = extract_text(input);
-        let logits = self.session.run(&self.tokenize(&text))?;
-        let label = self.constrained_decode(question, &logits)?;
-        Decision::new(label, calibrated_confidence, &question.policy)
-    }
-}
-```
+## Latency (synthetic fixture)
 
-`Registry` would hold `Box<dyn Engine>` per question (or an enum over engine
-kinds) instead of today's concrete `LogisticEngine`; question definition,
-policy mapping, training/calibration bookkeeping, and the HTTP + Node APIs
-stay untouched. Calibration (M2: temperature scaling + ECE) applies
-identically — it's computed over (confidence, correctness) pairs and doesn't
-care where the logits came from.
+`crates/decide-onnx/tests/fixtures/bow_3label.onnx` is a tiny
+Gemm-only model (input `[1,16384]` → 3 logits). Measured on this machine:
 
-## Candidate model classes
+- `ask` p50 ≈ **56 µs**, p99 ≈ 1.5 ms (n=200, warmed; p99 dominated by a
+  cold scheduling blip).
 
-Target: 100–300M parameters, small enough to run on CPU in tens of
-milliseconds, large enough to beat bag-of-words on genuinely ambiguous inputs
-(negation, multi-intent tickets, domain jargon).
+Real distilled models will be slower — tens of ms on CPU for a 100–300M
+model — but the harness and the measurement method are in place.
 
-- **Distilled classifiers.** A task-specific head distilled from a larger
-  teacher on real gavel traffic. Cheapest at inference; narrowest scope.
-- **Small instruction models with constrained decoding.** More general —
-  one model can serve many questions — but every token must be schema-valid,
-  which is where the decoding sketch below matters.
+## Still ahead: the distillation pipeline
 
-Both export to ONNX for a single runtime dependency (`ort` or equivalent);
-tokenizer stays with the model artifacts.
+The inference core is ready; a *production* model is a separate project.
+The recipe, when there is real traffic worth distilling against:
 
-## Schema-constrained decoding sketch
+1. **Teacher labeling.** A large model (or human review) labels a corpus of
+   real inputs per question. Human spot-checks on a sampled subset —
+   distillation amplifies teacher errors.
+2. **Fine-tune a small classifier** (e.g. ModernBERT) on the labeled corpus.
+3. **Export to ONNX** (opset 17+, static shapes where possible).
+4. **Int8 quantize** for CPU serving.
+5. **Configure gavel** with the artifacts:
+   `{"engine": {"onnx": {"model": "model.int8.onnx",
+   "tokenizer": "tokenizer.json", "labels": [...]}}}`.
+6. **Evaluate against the logistic baseline** on the same harness
+   (decide-bench): accuracy, latency p50/p99, ECE before/after temperature
+   scaling. Ship only if it wins on accuracy without losing on calibration.
 
-The output schema is a contract, not a suggestion. For classification-style
-questions (the M1/M2 shape), the cleanest approach:
+See `crates/decide-onnx/README.md` for the operator-facing version of this
+recipe and the fixture regeneration script.
 
-1. At question-definition time, compile the output JSON schema into a
-   **token allow-list per decode position** — for an enum output this is a
-   fixed set of token sequences (e.g. the exact bytes of
-   `{"label":"billing"}`).
-2. During decoding, **mask logits** to the allowed set before sampling/argmax
-   (standard logit bias = −∞ for disallowed tokens). With greedy decoding this
-   reduces to scoring the candidate completions and picking the max — no
-   free-form generation, no invalid JSON, ever.
-3. Confidence comes from the softmax over the allowed completions, then
-   through the same temperature scaling used in M2.
+## Original design notes (kept for context)
 
-For richer output schemas (nested objects, numbers), the allow-list becomes a
-finite-state machine over the schema grammar (the standard constrained-decoding
-approach); same principle, more states. The key invariant: **the decoder can
-only emit schema-valid output**, so validation is structural, not a retry loop.
-
-## Eval plan (via decide-bench, M4)
-
-Same datasets, same harness, no moving goalposts:
-
-- **Accuracy** per question on held-out sets vs the M1 logistic baseline.
-- **Latency**: p50/p99 per `ask`, CPU-only, cold and warm.
-- **ECE** before/after temperature scaling — a bigger model with worse
-  calibration is not an upgrade.
-- **Cost**: bytes shipped (model artifacts), RAM at rest, build complexity.
-
-Ship M3 only if it wins on accuracy *without* losing on calibration, and the
-latency/cost budget is documented honestly — including the cases where the
-logistic baseline stays the right choice.
-
-## Open questions
-
-1. **Distillation data**: synthetic-from-teacher vs real traffic — how much
-   real traffic is "enough" before the distilled model stops embarrassing
-   itself on out-of-distribution inputs?
-2. **One model per question vs one shared model**: per-question heads are
-   simpler to version; a shared backbone is cheaper to ship. Probably start
-   per-question, revisit if question counts grow.
-3. **Calibration under distribution shift**: temperature fitted on validation
-   data degrades as traffic drifts — do we need online recalibration, or is
-   periodic refit via `/calibrate` enough?
-4. **ONNX runtime choice**: `ort` bindings vs a minimal custom runtime —
-   dependency weight vs control. Undecided; benchmark both when M3 starts.
-5. **Fallback story**: if the ONNX engine fails to load (missing weights,
-   arch mismatch), the registry should fall back to the logistic engine or
-   the mock stub rather than refusing to serve — decide the policy now, not
-   during an incident.
+- **Candidate model classes** (unchanged): distilled per-question
+  classifiers are the cheap, narrow option; small instruction models with
+  constrained decoding are the general option. Both export to ONNX;
+  the tokenizer ships with the model artifacts.
+- **Constrained decoding** (unchanged principle): for classification the
+  label set *is* the constraint — argmax over labels, no token masking
+  needed. For richer schemas later, compile the schema to a token
+  allow-list / grammar FSM and mask logits during decoding.
+- **Open questions carried forward**: how much real traffic is "enough"
+  before distillation stops embarrassing itself OOD (#1); one model per
+  question vs shared backbone (#2); calibration under distribution shift —
+  periodic `/calibrate` refit vs online (#3); `ort` vs a minimal custom
+  runtime — `ort` won for now (#4).
