@@ -27,8 +27,9 @@ plt.rcParams.update({
 })
 
 def bar_chart(path, title, subtitle, labels, values, colors, fmt,
-              footnote=None, yerr=None, logy=False, ylabel=None):
-    fig, ax = plt.subplots(figsize=(8, 4.6))
+              footnote=None, yerr=None, logy=False, ylabel=None,
+              figsize=(8, 4.6), xtick_fontsize=11):
+    fig, ax = plt.subplots(figsize=figsize)
     x = range(len(labels))
     bars = ax.bar(x, values, color=colors, width=0.55, edgecolor="white",
                   yerr=yerr, capsize=6, ecolor="#374151",
@@ -36,10 +37,10 @@ def bar_chart(path, title, subtitle, labels, values, colors, fmt,
     if logy:
         ax.set_yscale("log")
     ax.set_xticks(list(x))
-    ax.set_xticklabels(labels, fontsize=12)
-    ax.set_title(title, loc="left", pad=34)
+    ax.set_xticklabels(labels, fontsize=xtick_fontsize)
+    ax.set_title(title, loc="left", pad=44)
     if subtitle:
-        ax.text(0, 1.015, subtitle, transform=ax.transAxes, fontsize=10.5,
+        ax.text(0, 1.03, subtitle, transform=ax.transAxes, fontsize=10.5,
                 color="#4b5563", va="bottom", ha="left")
     if ylabel:
         ax.set_ylabel(ylabel, color="#4b5563")
@@ -53,7 +54,9 @@ def bar_chart(path, title, subtitle, labels, values, colors, fmt,
         h = b.get_height()
         cx = b.get_x() + b.get_width() / 2
         if logy:
-            ax.text(cx, h * 1.3, txt, ha="center", va="bottom",
+            # log scale: labels sit above the bar; give the axes headroom so
+            # they never touch the subtitle
+            ax.text(cx, h * 1.4, txt, ha="center", va="bottom",
                     fontsize=11, fontweight="bold")
         elif h > 0.18 * ymax:
             ax.text(cx, h * 0.94, txt, ha="center", va="top",
@@ -61,10 +64,12 @@ def bar_chart(path, title, subtitle, labels, values, colors, fmt,
         else:
             ax.text(cx, h + 0.03 * ymax, txt, ha="center", va="bottom",
                     fontsize=11, fontweight="bold")
+    if logy:
+        ax.set_ylim(top=ymax * 2.6)
     if footnote:
-        fig.text(0.02, 0.01, footnote, fontsize=8.5, color="#6b7280", wrap=True,
+        fig.text(0.02, 0.025, footnote, fontsize=7.5, color="#6b7280",
                  ha="left", va="bottom")
-    fig.tight_layout(rect=[0, 0.06, 1, 0.94])
+    fig.tight_layout(rect=[0, 0.10, 1, 0.90])
     fig.savefig(os.path.join(OUT, path), bbox_inches="tight")
     plt.close(fig)
     print("wrote", path)
@@ -130,6 +135,64 @@ bar_chart(
     [l for l, _, _ in cost], [v for _, v, _ in cost],
     [GAVEL, OTHER, OTHER2], [t for _, _, t in cost],
     footnote="Gavel: $0 marginal (self-hosted \u2014 your hardware, not literally zero TCO). Jev/Haiku: published list prices.")
+
+NAVY = "#1e3a8a"   # full-data baselines
+
+# --- label-efficiency experiment (2026-09-20, issue-triage task) ---
+# SetFit (all-MiniLM-L6-v2, num_iterations=5, 1 epoch, seed 42) vs TF-IDF
+# trained on the exact same 8/16/32-per-class subsamples; full-data TF-IDF
+# and frozen MiniLM + logreg trained on all 5,832 examples.
+# Same 1,250-issue test set throughout; latencies are 2-thread CPU wall-clock.
+few_labels = ["SetFit 8", "TF-IDF 8",
+              "SetFit 16", "TF-IDF 16",
+              "SetFit 32", "TF-IDF 32",
+              "frozen MiniLM", "TF-IDF full"]
+few_colors = [GAVEL, OTHER, GAVEL, OTHER, GAVEL, OTHER, OTHER2, NAVY]
+few_acc = [59.28, 66.16, 63.92, 62.48, 72.88, 68.48, 78.16, 82.72]
+few_train_s = [297, 0.8, 536, 0.8, 1064, 0.9, 788.6, 13.1]
+few_train_txt = ["297 s", "0.8 s", "536 s", "0.8 s", "1,064 s", "0.9 s",
+                 "789 s", "13.1 s"]
+few_lat_ms = [179.6, 0.0018, 177.6, 0.0023, 175.9, 0.0023, 96.5, 1.1]
+few_lat_txt = ["180 ms", "0.0018 ms", "178 ms", "0.0023 ms", "176 ms",
+               "0.0023 ms", "96.5 ms", "1.1 ms"]
+
+bar_chart(
+    "fewshot_accuracy.png",
+    "What tens of labels buy you",
+    "Test accuracy on the same 1,250 issues, % correct (higher is better)\n"
+    "blue = SetFit (fine-tuned MiniLM) \u00b7 gray = same-budget TF-IDF \u00b7 "
+    "dark gray = frozen MiniLM \u00b7 navy = full-data TF-IDF baseline",
+    few_labels, few_acc, few_colors, lambda v: f"{v:.1f}%",
+    footnote=("SetFit: all-MiniLM-L6-v2, num_iterations=5 (not the default 20), "
+              "1 epoch, single seed 42 \u2014 one noisy draw, not a mean. "
+              "TF-IDF rows use the same subsamples; same 1,250-issue test set; "
+              "random split, duplicate leakage unaudited."),
+    figsize=(9.6, 4.8), xtick_fontsize=10)
+
+bar_chart(
+    "fewshot_cost.png",
+    "What those extra points cost",
+    "Training wall-clock, seconds (lower is better) \u00b7 log scale\n"
+    "blue = SetFit \u00b7 gray = same-budget TF-IDF \u00b7 "
+    "dark gray = frozen MiniLM \u00b7 navy = full-data TF-IDF baseline",
+    few_labels, few_train_s, few_colors, few_train_txt,
+    logy=True,
+    footnote=("Wall-clock on 2 CPU threads; frozen MiniLM = 788 s encoding + 0.6 s fitting. "
+              "Relative ordering is robust; exact seconds are not."),
+    figsize=(9.6, 4.8), xtick_fontsize=10)
+
+bar_chart(
+    "fewshot_latency.png",
+    "The price you pay at decision time",
+    "Per-question latency, milliseconds (lower is better) \u00b7 log scale\n"
+    "blue = SetFit \u00b7 gray = same-budget TF-IDF \u00b7 "
+    "dark gray = frozen MiniLM \u00b7 navy = full-data TF-IDF baseline",
+    few_labels, few_lat_ms, few_colors, few_lat_txt,
+    logy=True,
+    footnote=("Encode+predict over 1,250 test questions (200 for frozen MiniLM); "
+              "TF-IDF full-data from the flagship harness; 2-thread CPU; "
+              "TF-IDF rows are scikit-learn in-process, SetFit/frozen are encoder-bound."),
+    figsize=(9.6, 4.8), xtick_fontsize=10)
 
 bar_chart(
     "ece_scaling_synthetic.png",
