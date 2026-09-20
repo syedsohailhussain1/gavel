@@ -31,8 +31,12 @@ fn read_jsonl(path: &str) -> Vec<(String, String)> {
             let line = line.unwrap_or_else(|e| panic!("read error in {path} line {i}: {e}"));
             let v: serde_json::Value =
                 serde_json::from_str(&line).unwrap_or_else(|e| panic!("bad JSON {path}:{i}: {e}"));
-            let input = v["input"].as_str().unwrap_or_else(|| panic!("missing input {path}:{i}"));
-            let label = v["label"].as_str().unwrap_or_else(|| panic!("missing label {path}:{i}"));
+            let input = v["input"]
+                .as_str()
+                .unwrap_or_else(|| panic!("missing input {path}:{i}"));
+            let label = v["label"]
+                .as_str()
+                .unwrap_or_else(|| panic!("missing label {path}:{i}"));
             (input.to_string(), label.to_string())
         })
         .collect()
@@ -41,7 +45,11 @@ fn read_jsonl(path: &str) -> Vec<(String, String)> {
 /// AUROC via Mann-Whitney U with tie-averaged ranks (same method as the
 /// reference benchmark's analyze.py).
 fn auroc(scores: &[f64], labels: &[bool]) -> f64 {
-    let mut items: Vec<(f64, bool)> = scores.iter().zip(labels.iter()).map(|(&s, &l)| (s, l)).collect();
+    let mut items: Vec<(f64, bool)> = scores
+        .iter()
+        .zip(labels.iter())
+        .map(|(&s, &l)| (s, l))
+        .collect();
     // Rust's sort_by is stable, matching mergesort argsort.
     items.sort_by(|a, b| a.0.total_cmp(&b.0));
     let n = items.len() as f64;
@@ -59,8 +67,8 @@ fn auroc(scores: &[f64], labels: &[bool]) -> f64 {
             j += 1;
         }
         let avg_rank = (i + j) as f64 / 2.0 + 1.0;
-        for k in i..=j {
-            if items[k].1 {
+        for item in &items[i..=j] {
+            if item.1 {
                 rank_sum_pos += avg_rank;
             }
         }
@@ -138,7 +146,10 @@ fn main() {
     let calibrate_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     let classes = engine.classes().to_vec();
-    assert_eq!(classes, vec!["legitimate".to_string(), "phishing".to_string()]);
+    assert_eq!(
+        classes,
+        vec!["legitimate".to_string(), "phishing".to_string()]
+    );
     let phish_idx = 1; // classes are sorted: legitimate < phishing
 
     let mut tp = 0u64;
