@@ -1,0 +1,15 @@
+# Rust
+target/
+Cargo.lock
+
+# Node
+node_modules/
+*.node
+!**/*.d.ts
+
+# TypeScript build output
+dist/
+
+# Env / OS
+.env
+.DS_Store

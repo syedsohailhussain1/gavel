@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/decide-core", "crates/decide-napi"]
+resolver = "2"

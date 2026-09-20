@@ -1,0 +1,1 @@
+{"description":"The open typed-decision layer for AI agents — TypeScript SDK","devDependencies":{"@types/node":"^20.0.0","typescript":"^5.0.0"},"license":"MIT","main":"dist/index.js","name":"@gavel/decide","scripts":{"build":"tsc","example":"tsc && node dist/examples/route_ticket.js","test":"node --test dist/test/*.js"},"types":"dist/index.d.ts","version":"0.1.0"}

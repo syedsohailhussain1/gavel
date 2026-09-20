@@ -1,0 +1,21 @@
+{
+  "description": "Node.js bindings for decide-core",
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.0"
+  },
+  "license": "MIT",
+  "main": "index.js",
+  "name": "decide-napi",
+  "napi": {
+    "name": "decide",
+    "triples": {
+      "defaults": true
+    }
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform"
+  },
+  "types": "index.d.ts",
+  "version": "0.1.0"
+}
