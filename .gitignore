@@ -17,3 +17,6 @@ benches/results/*.json
 
 # Python
 __pycache__/
+
+# Large model artifacts (downloaded, not committed)
+models/
