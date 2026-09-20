@@ -260,6 +260,13 @@ impl OnnxEngine {
         // enough. Defaults to "" in HashedBow mode (unused there).
         #[cfg(feature = "tokenizers")]
         let mask_name = self.input_names.get(1).cloned().unwrap_or_default();
+        // BERT-style models take a third input, `token_type_ids` (all zeros
+        // for single-sequence classification). Passed only when the model
+        // actually declares a third input.
+        #[cfg(feature = "tokenizers")]
+        let type_name = self.input_names.get(2).cloned().unwrap_or_default();
+        #[cfg(feature = "tokenizers")]
+        let has_type_ids = self.input_names.len() > 2;
         let inputs = match self.mode {
             InputMode::HashedBow => {
                 let feats = hashed_bow_dense(text);
@@ -271,12 +278,24 @@ impl OnnxEngine {
             #[cfg(feature = "tokenizers")]
             InputMode::TokenIds => {
                 let (ids, mask) = self.encode_token_ids(text)?;
-                let l = ids.len() as i64;
+                let n = ids.len();
+                let l = n as i64;
                 let ids_t = ort::value::Tensor::from_array((vec![1i64, l], ids))
                     .map_err(|e| engine_error("failed to build input_ids tensor", e))?;
                 let mask_t = ort::value::Tensor::from_array((vec![1i64, l], mask))
                     .map_err(|e| engine_error("failed to build attention_mask tensor", e))?;
-                ort::inputs![input_name.as_str() => ids_t, mask_name.as_str() => mask_t]
+                match has_type_ids {
+                    true => {
+                        let type_t = ort::value::Tensor::from_array((vec![1i64, l], vec![0i64; n]))
+                            .map_err(|e| {
+                                engine_error("failed to build token_type_ids tensor", e)
+                            })?;
+                        ort::inputs![input_name.as_str() => ids_t, mask_name.as_str() => mask_t, type_name.as_str() => type_t]
+                    }
+                    false => {
+                        ort::inputs![input_name.as_str() => ids_t, mask_name.as_str() => mask_t]
+                    }
+                }
             }
         };
 

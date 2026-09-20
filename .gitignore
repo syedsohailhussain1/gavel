@@ -18,5 +18,8 @@ benches/results/*.json
 # Python
 __pycache__/
 
-# Large model artifacts (downloaded, not committed)
-models/
+# Large model artifacts (downloaded, not committed); demo scripts stay tracked
+models/*
+!models/download.py
+!models/test_model.py
+!models/README.md
