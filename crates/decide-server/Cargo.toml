@@ -1,0 +1,15 @@
+[package]
+name = "decide-server"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal HTTP server exposing decide-core as JSON (M5-lite)"
+license = "MIT"
+
+[[bin]]
+name = "gavel-server"
+path = "src/main.rs"
+
+[dependencies]
+decide-core = { path = "../decide-core" }
+serde_json = "1"
+tiny_http = "0.12"

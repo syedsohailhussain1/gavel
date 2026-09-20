@@ -13,3 +13,7 @@ dist/
 # Env / OS
 .env
 .DS_Store
+benches/results/*.json
+
+# Python
+__pycache__/

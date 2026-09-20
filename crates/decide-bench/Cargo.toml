@@ -1,0 +1,12 @@
+[package]
+name = "decide-bench"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "decide-bench"
+path = "src/main.rs"
+
+[dependencies]
+decide-core = { path = "../decide-core" }
+serde_json = "1"
