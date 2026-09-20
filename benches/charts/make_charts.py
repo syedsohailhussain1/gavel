@@ -45,19 +45,22 @@ def bar_chart(path, title, subtitle, labels, values, colors, fmt,
         ax.set_ylabel(ylabel, color="#4b5563")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    # value labels on bars
-    labels_txt = [fmt(v) if callable(fmt) else t for v, t in zip(values, fmt)] \
-        if not callable(fmt) else [fmt(v) for v in values]
+    # value labels: inside tall bars (white), above short bars (black) —
+    # keeps them clear of the subtitle line at the top of the axes
+    labels_txt = [fmt(v) for v in values] if callable(fmt) else list(fmt)
     ymax = max(v for v in values if v > 0) if any(v > 0 for v in values) else 1
     for b, v, txt in zip(bars, values, labels_txt):
-        y = b.get_height()
+        h = b.get_height()
+        cx = b.get_x() + b.get_width() / 2
         if logy:
-            ax.text(b.get_x() + b.get_width() / 2, y * 1.25, txt,
-                    ha="center", va="bottom", fontsize=11, fontweight="bold")
+            ax.text(cx, h * 1.3, txt, ha="center", va="bottom",
+                    fontsize=11, fontweight="bold")
+        elif h > 0.18 * ymax:
+            ax.text(cx, h * 0.94, txt, ha="center", va="top",
+                    fontsize=11, fontweight="bold", color="white")
         else:
-            ax.text(b.get_x() + b.get_width() / 2,
-                    y + (0.02 * ymax if y > 0 else 0.02), txt,
-                    ha="center", va="bottom", fontsize=11, fontweight="bold")
+            ax.text(cx, h + 0.03 * ymax, txt, ha="center", va="bottom",
+                    fontsize=11, fontweight="bold")
     if footnote:
         fig.text(0.02, 0.01, footnote, fontsize=8.5, color="#6b7280", wrap=True,
                  ha="left", va="bottom")
