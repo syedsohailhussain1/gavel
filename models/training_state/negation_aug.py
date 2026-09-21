@@ -173,11 +173,17 @@ def serialize(label, subject, body, sender, frm, link_text, link_url):
             "label": label}
 
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gavel_paths import TS as _TS
+
+
 if __name__ == "__main__":
     tr = [serialize(*a) for a in AUG_TRAIN]
     va = [serialize(*a) for a in AUG_VAL]
-    json.dump(tr, open("D:/gavel/models/training_state/negation_aug_train.json", "w"))
-    json.dump(va, open("D:/gavel/models/training_state/negation_aug_val.json", "w"))
+    json.dump(tr, open(str(_TS) + "/negation_aug_train.json", "w"))
+    json.dump(va, open(str(_TS) + "/negation_aug_val.json", "w"))
     from collections import Counter
     print("train:", len(tr), Counter(x["label"] for x in tr), flush=True)
     print("val:", len(va), Counter(x["label"] for x in va), flush=True)

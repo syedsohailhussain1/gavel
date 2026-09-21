@@ -30,6 +30,23 @@ Production question: `phishing_tfidf` (stable name). Versioned artifacts beside 
 - v3 (1208, +contrastive regen): gate GREEN, test150 150/150.
 - Full miss→fix cycle: voicemail-attachment phish missed (aug_val 15/16) →
   2 fresh variants appended → rebuilt → aug_val 16/16, probe 16/16, test150 150/150.
+- PR review fixes: all TF-IDF artifacts ship fitted T (M2 mirror `m2.py`;
+  prod T=0.306, ECE 0.044→0.007); gate asserts calibration from the artifact;
+  Temp deps moved to D:/jev-phishing-bench + D:/gavel-phish; all scripts routed
+  through `gavel_paths.py` (GAVEL_TS/GAVEL_URL/GAVEL_BENCH/GAVEL_PHISH env);
+  probe shared via `probe_items.py`; advisory senders rotate (no shortcut).
+
+## Module map
+
+- `gavel_paths.py` — every machine-local path (env-overridable).
+- `m2.py` — exact mirror of decide-core fit_temperature + native ECE.
+- `retrain_all.py` — rebuilds everything, incl. calibrated prod TF-IDF.
+- `eval_gate.py` — labels + artifact-calibration checks, blocks on fail.
+- `contrast_augment.py` — deterministic contrastive regen (seed 11).
+- `ladder.py` — zero-shot cold-start loop with fitted T.
+- `signals_build.py` — 5 signal artifacts, each T-fitted on its val.
+- `decompose.py` — verdict+signals+rules sidecar (:7586).
+- `dashboard.py` — live view (:7587).
 
 ## Rules
 

@@ -30,7 +30,11 @@ def split(items, f=0.8):
     return tr, va
 
 
-seeds = json.load(open("D:/virtual-brain/distillation_seeds/qa_seeds.json"))
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gavel_paths import QA_SEEDS
+seeds = json.load(open(QA_SEEDS))
 split([(x["question"], x["domain"]) for x in seeds])  # advance rng identically
 from collections import Counter
 keep = {t for t, c in Counter(x["task_type"] for x in seeds).items() if c >= 30}
@@ -58,6 +62,17 @@ Xva = vec.transform([t for t, _ in val])
 print(f"sklearn train={clf.score(Xtr, ytr):.4f} val={clf.score(Xva, [l for _, l in val]):.4f}",
       flush=True)
 print(f"vocab={len(vec.vocabulary_)}", flush=True)
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gavel_paths import TS as _TS
+from m2 import calibrate_logits
+_dh = clf.decision_function(Xva)
+_cls = list(clf.classes_)
+_sets = [[float(_dh[i, _cls.index(c)]) for c in LABELS] for i in range(len(val))]
+_targets = [LABELS.index(l) for _, l in val]
+T, ece_b, ece_a = calibrate_logits(_sets, _targets)
+print(f"T={T:.4f} ece={ece_b:.4f}->{ece_a:.4f}", flush=True)
 
 # Export artifact: term -> [idf, coef_c0..c9] in LABELS order
 terms = vec.get_feature_names_out()
@@ -66,17 +81,18 @@ coefs = {c: clf.coef_[list(clf.classes_).index(c)] for c in LABELS}
 vocab = {}
 for j, t in enumerate(terms):
     vocab[t] = [float(idf[j])] + [float(coefs[c][j]) for c in LABELS]
-art = {"model_id": "task-router-tfidf-v1", "classes": LABELS, "temperature": 1.0,
+art = {"model_id": "task-router-tfidf-v1", "classes": LABELS, "temperature": T,
+       "eval": {"ece_before": ece_b, "ece_after": ece_a},
        "intercept": [float(b) for b in
                      [clf.intercept_[list(clf.classes_).index(c)] for c in LABELS]],
        "vocab": vocab}
-path = "D:/gavel/models/training_state/task_tfidf.json"
+path = str(_TS) + "/task_tfidf.json"
 json.dump(art, open(path, "w"))
 import os
 print(f"artifact {os.path.getsize(path)/1e6:.2f} MB", flush=True)
 
 import urllib.request
-BASE = "http://127.0.0.1:7575"
+from gavel_paths import GAVEL_URL as BASE
 
 
 def api(p, body=None, timeout=120):

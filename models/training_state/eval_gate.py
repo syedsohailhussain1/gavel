@@ -9,14 +9,13 @@ import os
 import sys
 import urllib.request
 
-BASE = "http://127.0.0.1:7575"
-TS = "D:/gavel/models/training_state/"
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gavel_paths import GAVEL_URL as BASE, TS, PHISH
+TS, PHISH = str(TS), str(PHISH)
+from probe_items import PROBE
 CAND = sys.argv[1] if len(sys.argv) > 1 else "phishing_tfidf"
-
-_src = open(os.path.join(TS, "negation_probe.py"), encoding="utf-8").read()
-_ns: dict = {}
-exec(_src[_src.index("def E("):_src.index("def g_ask")], _ns)
-PROBE = _ns["PROBE"]
 
 
 def api(p, body=None, timeout=60):
@@ -59,10 +58,10 @@ def check(name, items, need, inp_of, lab_of):
 
 
 check("probe", PROBE, 16, serialize, lambda e: e["expect"])
-aug_val = json.load(open(TS + "negation_aug_val.json"))
+aug_val = json.load(open(TS + "/negation_aug_val.json"))
 check("aug_val", aug_val, 15, lambda x: x["input"], lambda x: x["label"])
 te = [json.loads(l) for l in
-      open("C:/Users/Sohail/AppData/Local/Temp/opencode/gavel-phish/test.jsonl",
+      open(PHISH + "/test.jsonl",
            encoding="utf-8")][:150]
 ok = skip = 0
 for x in te:
@@ -79,10 +78,45 @@ print(f"[{v}] test150: {ok}/{done}={rate:.4f} (need >=0.985) skipped={skip}", fl
 if v == "FAIL":
     fails.append("test150")
 
+# Calibration check (PR-1 fix): TF-IDF artifacts must ship fitted T + ECE.
+# Server /metrics cannot report TF-IDF ECE, so the gate reads the artifact.
+_ART = {"phishing_tfidf": "phishing_tfidf_prod.json",
+        "task_router_tfidf": "task_tfidf.json",
+        "topic_router": "ladder_topic_router.json",
+        "topic_router_zero": "ladder_topic_router.json",
+        "sig_free_hosting": "sig_free_hosting.json",
+        "sig_domain_mismatch": "sig_domain_mismatch.json",
+        "sig_lure": "sig_lure.json",
+        "sig_urgency": "sig_urgency.json",
+        "sig_generic_sender": "sig_generic_sender.json"}
+if CAND in _ART:
+    try:
+        _a = json.load(open(TS + "/" + _ART[CAND], encoding="utf-8"))
+        _ev = _a.get("eval") or {}
+        _ok_cal = (_a.get("temperature") not in (None, 1.0)
+                   and _ev.get("ece_after") is not None
+                   and _ev["ece_after"] <= 0.12
+                   and _ev["ece_after"] <= _ev.get("ece_before", 1.0) + 1e-9)
+        print(f"[{'PASS' if _ok_cal else 'FAIL'}] calibration: "
+              f"T={_a.get('temperature')} ece={_ev.get('ece_before')}->{_ev.get('ece_after')}",
+              flush=True)
+        if not _ok_cal:
+            fails.append("calibration")
+    except Exception as e:
+        print(f"[FAIL] calibration: unreadable artifact ({e})", flush=True)
+        fails.append("calibration")
+else:
+    _m = api(f"/metrics?question={CAND}")
+    _ok_cal = _m.get("temperature") is not None
+    print(f"[{'PASS' if _ok_cal else 'FAIL'}] calibration: server T={_m.get('temperature')}",
+          flush=True)
+    if not _ok_cal:
+        fails.append("calibration")
+
 if fails:
     print(f"GATE BLOCKED: {fails}", flush=True)
     raise SystemExit(1)
-man_path = TS + "manifest.json"
+man_path = TS + "/manifest.json"
 man = json.loads(open(man_path).read()) if __import__("os").path.exists(man_path) else {}
 man["production_phishing_tfidf"] = CAND
 json.dump(man, open(man_path, "w"), indent=1)

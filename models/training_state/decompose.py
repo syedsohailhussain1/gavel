@@ -12,10 +12,13 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-GAVEL = "http://127.0.0.1:7575"
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gavel_paths import GAVEL_URL as GAVEL, BENCH
+sys.path.insert(0, str(BENCH))
 SIGNALS = ["sig_free_hosting", "sig_domain_mismatch", "sig_lure",
            "sig_urgency", "sig_generic_sender"]
-sys.path.insert(0, "C:/Users/Sohail/AppData/Local/Temp/opencode/jev-phishing-bench")
 from bench.heuristics import features as heur_rules  # noqa: E402
 
 

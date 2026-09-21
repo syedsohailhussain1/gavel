@@ -23,3 +23,14 @@ models/*
 !models/download.py
 !models/test_model.py
 !models/README.md
+# Training-state flywheel: reviewed scripts + small data stay tracked so the
+# pipeline is reproducible from git; weights (*.onnx, *_tfidf*.json, sig_*.json,
+# .bak*.json) and vendored corpora stay out and rebuild locally via retrain_all.py
+!models/training_state/
+models/training_state/*
+!models/training_state/*.py
+!models/training_state/*.md
+!models/training_state/manifest.json
+!models/training_state/negation_*.json
+!models/training_state/*_labels.jsonl
+!models/training_state/phishing_*.jsonl

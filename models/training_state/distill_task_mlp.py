@@ -52,7 +52,11 @@ def split_examples(items, train_frac=0.8):
     return train, val
 
 
-with open("D:/virtual-brain/distillation_seeds/qa_seeds.json") as f:
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gavel_paths import QA_SEEDS, TS as _TS
+with open(QA_SEEDS) as f:
     seeds = json.load(f)
 _ = split_examples([(x["question"], x["domain"]) for x in seeds])  # step 1: advance rng identically
 
@@ -108,7 +112,7 @@ graph = helper.make_graph(
 model = helper.make_model(graph, producer_name="gavel-distill-v1",
                           opset_imports=[helper.make_opsetid("", 17)], ir_version=10)
 onnx.checker.check_model(model)
-out = "D:/gavel/models/training_state/task_mlp.onnx"
+out = str(_TS) + "/task_mlp.onnx"
 onnx.save(model, out)
 print(f"saved {out}", flush=True)
 

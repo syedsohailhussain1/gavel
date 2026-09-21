@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Qwen SeqKD labeling: 120 frontier_qa questions -> 10 task_router labels.
-Writes D:/gavel/models/training_state/qwen_seqkd.jsonl incrementally.
+Writes qwen_seqkd.jsonl (see TS) incrementally.
 ~8s/label on this box => ~16 min. Run AFTER stopping hybrid (RAM)."""
 import json
 import random
@@ -8,10 +8,14 @@ import time
 
 LABELS = ["ARC-Easy", "CommonsenseQA", "MATH/algebra", "MetaMathQA",
           "NuminaMath-CoT", "OrcaMath", "QASC", "SciQ", "file_ops", "multi_research"]
-OUT = "D:/gavel/models/training_state/qwen_seqkd.jsonl"
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gavel_paths import TS as _TS, FRONTIER_QA, QWEN as _QWEN
+OUT = str(_TS) + "/qwen_seqkd.jsonl"
 
 rng = random.Random(7)
-with open("D:/virtual-brain/frontier_seeds/frontier_qa.json") as f:
+with open(FRONTIER_QA) as f:
     frontier = json.load(f)
 rng.shuffle(frontier)
 sample = frontier[:120]
@@ -19,11 +23,11 @@ print(f"sampled {len(sample)}", flush=True)
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-tok = AutoTokenizer.from_pretrained("D:/gavel/models/qwen3-4b", trust_remote_code=False)
+tok = AutoTokenizer.from_pretrained(str(_QWEN), trust_remote_code=False)
 if tok.pad_token_id is None:
     tok.pad_token = tok.eos_token
 model = AutoModelForCausalLM.from_pretrained(
-    "D:/gavel/models/qwen3-4b", dtype=torch.float16, device_map="auto",
+    str(_QWEN), dtype=torch.float16, device_map="auto",
     low_cpu_mem_usage=True, trust_remote_code=False)
 model.eval()
 print("Qwen loaded", flush=True)

@@ -16,12 +16,18 @@ import random
 import sys
 import urllib.request
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gavel_paths import TS as _TS, GAVEL_URL as _BASE, QWEN as _QWEN
+
 QUESTION, LABELS_CSV, CORPUS, FIELD = sys.argv[1:5]
 N = int(sys.argv[5]) if len(sys.argv) > 5 else 120
 TARGET = float(sys.argv[6]) if len(sys.argv) > 6 else 0.80
 LABELS = [l.strip() for l in LABELS_CSV.split(",")]
-TS = "D:/gavel/models/training_state/"
-BASE = "http://127.0.0.1:7575"
+TS = str(_TS) + "/"
+BASE = _BASE
+QWEN = str(_QWEN)
 
 
 def api(p, body=None, timeout=180):
@@ -41,11 +47,11 @@ sample = items[:N]
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-tok = AutoTokenizer.from_pretrained("D:/gavel/models/qwen3-4b", trust_remote_code=False)
+tok = AutoTokenizer.from_pretrained(QWEN, trust_remote_code=False)
 if tok.pad_token_id is None:
     tok.pad_token = tok.eos_token
 model = AutoModelForCausalLM.from_pretrained(
-    "D:/gavel/models/qwen3-4b", dtype=torch.float16, device_map="auto",
+    QWEN, dtype=torch.float16, device_map="auto",
     low_cpu_mem_usage=True, trust_remote_code=False)
 model.eval()
 print("[ladder] Qwen loaded", flush=True)
@@ -87,25 +93,43 @@ ntr = int(len(labeled) * 0.75)
 train, held = labeled[:ntr], labeled[ntr:]
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
+from m2 import calibrate_logits
 vec = TfidfVectorizer(lowercase=True, ngram_range=(1, 2), sublinear_tf=True)
 X = vec.fit_transform([x["input"] for x in train])
 clf = LogisticRegression(max_iter=2000).fit(X, [x["label"] for x in train])
-acc = clf.score(vec.transform([x["input"] for x in held]),
-                [x["label"] for x in held])
+Xh = vec.transform([x["input"] for x in held])
+yh = [x["label"] for x in held]
+acc = clf.score(Xh, yh)
 print(f"[ladder] student train={len(train)} held-out(Qwen)={len(held)} fidelity={acc:.3f}",
       flush=True)
+# Per-class raw scores in LABELS order (order-safe for binary and multinomial).
+# Binary sklearn: decision_function is the signed distance for classes_[1].
+_dh = clf.decision_function(Xh)
+_cls = list(clf.classes_)
+if _dh.ndim > 1:
+    _col = {c: _dh[:, _cls.index(c)] for c in LABELS}
+else:
+    _pos = _cls[1]
+    _col = {c: (_dh if c == _pos else -_dh) for c in LABELS}
+_sets = [[float(_col[c][i]) for c in LABELS] for i in range(len(yh))]
+targets = [LABELS.index(l) for l in yh]
+T, ece_b, ece_a = calibrate_logits(_sets, targets)
+print(f"[ladder] T={T:.4f} ece={ece_b:.4f}->{ece_a:.4f}", flush=True)
 terms, idf, w = vec.get_feature_names_out(), vec.idf_, clf.coef_
 ncls = len(clf.classes_)
 cls = list(clf.classes_)
 if ncls == 2:
-    co = {LABELS[0]: -w[0], LABELS[1]: w[0]}
-    bi = {LABELS[0]: float(-clf.intercept_[0]), LABELS[1]: float(clf.intercept_[0])}
+    _pos = cls[1]
+    co = {c: (w[0] if c == _pos else -w[0]) for c in LABELS}
+    _b = float(clf.intercept_[0])
+    bi = {c: (_b if c == _pos else -_b) for c in LABELS}
     order = LABELS
 else:
     co = {c: w[cls.index(c)] for c in LABELS}
     bi = {c: float(clf.intercept_[cls.index(c)]) for c in LABELS}
     order = LABELS
-art = {"model_id": f"{QUESTION}-ladder-v1", "classes": order, "temperature": 1.0,
+art = {"model_id": f"{QUESTION}-ladder-v1", "classes": order, "temperature": T,
+       "eval": {"ece_before": ece_b, "ece_after": ece_a},
        "intercept": [bi[c] for c in order],
        "vocab": {t: [float(idf[j])] + [float(co[c][j]) for c in order]
                  for j, t in enumerate(terms)}}

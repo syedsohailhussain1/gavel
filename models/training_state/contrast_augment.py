@@ -23,6 +23,15 @@ NEG_FILLERS = [
     "Do not brush this off.",
 ]
 
+# (subject, frame, sender, from) — senders rotate so no single sender=>legit shortcut.
+ADVISORY_SENDERS = [
+    ("IT Security", "security@company.com"),
+    ("IT Helpdesk", "helpdesk@company.com"),
+    ("Comms", "comms@company.com"),
+    ("HR", "hr@company.com"),
+    ("Finance", "finance@company.com"),
+    ("Facilities", "facilities@company.com"),
+]
 ADVISORY_FRAMES = [
     ("Security notice: scam pattern",
      "The IT desk warns that messages like the quoted one below are scams. "
@@ -59,12 +68,13 @@ def augment(base_train, seed=11, per_class_cap=120):
     rng.shuffle(legit)
     out = []
     # 1. advisory-framed phish -> legit (quotes lure tokens under negation framing)
-    for x in phish[:per_class_cap]:
+    # Senders rotate evenly (20 each) — no single sender=>legit shortcut.
+    for k, x in enumerate(phish[:per_class_cap]):
         subj, frame = rng.choice(ADVISORY_FRAMES)
+        snd, frm = ADVISORY_SENDERS[k % len(ADVISORY_SENDERS)]
         raw = x["input"].split("body: ", 1)[1] if "body: " in x["input"] else x["input"]
         out.append(serialize(
-            "legitimate", subj, frame + raw[:400],
-            "IT Security", "security@company.com"))
+            "legitimate", subj, frame + raw[:400], snd, frm))
     # 2. negation-dressed phish -> phishing (lure intact under negation filler)
     for x in phish[:per_class_cap]:
         raw = x["input"].split("body: ", 1)[1] if "body: " in x["input"] else x["input"]
@@ -102,12 +112,18 @@ def augment(base_train, seed=11, per_class_cap=120):
     return out
 
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gavel_paths import TS as _TS
+
+
 if __name__ == "__main__":
     base = [json.loads(l) for l in
-            open("D:/gavel/models/training_state/phishing_train.jsonl", encoding="utf-8")]
+            open(str(_TS) + "/phishing_train.jsonl", encoding="utf-8")]
     gen = augment(base)
     from collections import Counter
     print(f"generated={len(gen)}", Counter(x["label"] for x in gen), flush=True)
     # sanity: no generated text may equal a probe input (disjoint check vs probe inputs)
-    json.dump(gen, open("D:/gavel/models/training_state/contrastive_gen.json", "w"))
+    json.dump(gen, open(str(_TS) + "/contrastive_gen.json", "w"))
     print("wrote contrastive_gen.json", flush=True)

@@ -6,8 +6,11 @@ import json
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-GAVEL = "http://127.0.0.1:7575"
-TS = "D:/gavel/models/training_state/"
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gavel_paths import GAVEL_URL as GAVEL, TS as _TS
+TS = str(_TS)
 
 
 def g(path, timeout=15):

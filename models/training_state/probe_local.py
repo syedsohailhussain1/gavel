@@ -5,15 +5,12 @@ import os
 import time
 import urllib.request
 
-TS = "D:/gavel/models/training_state/"
-_src = open(os.path.join(TS, "negation_probe.py"), encoding="utf-8").read()
-_ns: dict = {}
-exec(_src[_src.index("def E("):_src.index("def g_ask")], _ns)
-PROBE = _ns["PROBE"]
-
-BASE = "http://127.0.0.1:7575"
-
-
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gavel_paths import GAVEL_URL as BASE, TS
+TS = str(TS)
+from probe_items import PROBE
 def ask(q, text, timeout=30):
     body = json.dumps({"question": q, "input": text}).encode()
     req = urllib.request.Request(

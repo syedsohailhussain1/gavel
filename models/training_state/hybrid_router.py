@@ -15,8 +15,11 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-GAVEL = "http://127.0.0.1:7575"
-MODEL_DIR = "D:/gavel/models/qwen3-4b"
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gavel_paths import GAVEL_URL as GAVEL, QWEN as _QWEN
+MODEL_DIR = str(_QWEN)
 
 
 def gavel(path, body=None, timeout=60):

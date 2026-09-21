@@ -16,17 +16,21 @@
  },
  "teacher_style": {
   "train": 581,
-  "val": 146
+  "val": 146,
+  "T": 10.0
  },
  "code_task": {
-  "train": 49
+  "train": 49,
+  "T": 1.0
  },
  "phishing": {
   "train": 800,
-  "val": 200
+  "val": 200,
+  "T": 0.05
  },
  "route_ticket": {
-  "train": 24
+  "train": 24,
+  "T": 0.05
  },
  "phishing_tfidf": {
   "train": 1210,

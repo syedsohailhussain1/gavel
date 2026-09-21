@@ -13,11 +13,17 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, "C:/Users/Sohail/AppData/Local/Temp/opencode/jev-phishing-bench")
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gavel_paths import BENCH, PHISH, TS as GTS, GAVEL_URL as _BASE
+
+sys.path.insert(0, str(BENCH))
 from bench.heuristics import features as heur  # exact published semantics
 
-WORK = Path("C:/Users/Sohail/AppData/Local/Temp/opencode/gavel-phish")
-TS = Path("D:/gavel/models/training_state")
+WORK = PHISH
+TS = GTS
+BASE = _BASE
 SEED, SPLIT_SEED, TRAINVAL_SEED = 20260916, 20260917, 0x9E3779B9
 
 LURE_RE = re.compile(
@@ -83,7 +89,6 @@ for lab in (0, 1):
 print(f"split ok: train={len(train_ids)} val={len(val_ids)}", flush=True)
 
 import urllib.request
-BASE = "http://127.0.0.1:7575"
 
 
 def api(p, body=None, timeout=180):
@@ -107,15 +112,22 @@ for name in NAMES:
     Xva_text = [serialize(by_id[i]["email"]) for i in val_ids]
     from collections import Counter
     print(f"[{name}] train_pos_rate={sum(v == 'true' for v in ytr)}/{len(ytr)}", flush=True)
+    from m2 import calibrate_logits
     vec = TfidfVectorizer(lowercase=True, ngram_range=(1, 2), sublinear_tf=True)
     X = vec.fit_transform(Xtr_text)
     clf = LogisticRegression(max_iter=2000).fit(X, ytr)
     va_acc = clf.score(vec.transform(Xva_text), yva)
     print(f"[{name}] sklearn train={clf.score(X, ytr):.4f} val={va_acc:.4f} vocab={len(vec.vocabulary_)}",
           flush=True)
+    d = clf.decision_function(vec.transform(Xva_text))
+    T, ece_b, ece_a = calibrate_logits(
+        [[-float(v), float(v)] for v in d],
+        [1 if y == "true" else 0 for y in yva])
+    print(f"[{name}] T={T:.4f} ece={ece_b:.4f}->{ece_a:.4f}", flush=True)
     terms, idf = vec.get_feature_names_out(), vec.idf_
     w = clf.coef_[0]
-    art = {"model_id": name + "-v1", "classes": ["false", "true"], "temperature": 1.0,
+    art = {"model_id": name + "-v1", "classes": ["false", "true"], "temperature": T,
+           "eval": {"ece_before": ece_b, "ece_after": ece_a},
            "intercept": [float(-clf.intercept_[0]), float(clf.intercept_[0])],
            "vocab": {t: [float(idf[j]), float(-w[j]), float(w[j])]
                      for j, t in enumerate(terms)}}

@@ -24,8 +24,11 @@ import sys
 import urllib.request
 from pathlib import Path
 
-BASE = "http://127.0.0.1:7575"
-HERE = Path(__file__).resolve().parent
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+from gavel_paths import (GAVEL_URL as BASE, TS as HERE, QA_SEEDS,
+    CODE_SEEDS, FRONTIER_QA, DOLLY)
 rng = random.Random(20260920)
 
 
@@ -76,7 +79,7 @@ def train_q(name, items, calibrate=True):
 
 def main():
     report = {}
-    with open("D:/virtual-brain/distillation_seeds/qa_seeds.json") as f:
+    with open(QA_SEEDS) as f:
         seeds = json.load(f)
 
     report["domain_router"] = train_q(
@@ -94,14 +97,14 @@ def main():
         items += exs[:80]
     report["task_router"] = train_q("task_router", items)
 
-    with open("D:/research on LLM breakthroughs/data/dolly_knowledge_catalog.json") as f:
+    with open(DOLLY) as f:
         dolly = json.load(f)
     report["dolly_category"] = train_q(
         "dolly_category", [(x["prompt"], x["category"]) for x in dolly])
 
     if "--skip-frontier" not in sys.argv:
         print("loading frontier_qa (98MB)...", flush=True)
-        with open("D:/virtual-brain/frontier_seeds/frontier_qa.json") as f:
+        with open(FRONTIER_QA) as f:
             frontier = json.load(f)
         rng2 = random.Random(99)
         by_src = {}
@@ -134,9 +137,9 @@ def main():
         print(f"[teacher_style] train={len(train)} val={len(val)} cal={cal} "
               f"T={m.get('temperature')} ece={m.get('ece_before')}->{m.get('ece_after')}",
               flush=True)
-        report["teacher_style"] = {"train": len(train), "val": len(val)}
+        report["teacher_style"] = {"train": len(train), "val": len(val), "T": m.get("temperature")}
 
-    with open("D:/virtual-brain/distillation_seeds/code_seeds.json") as f:
+    with open(CODE_SEEDS) as f:
         code = json.load(f)
     rng3 = random.Random(99)
     exs = [(x["code"], x["task_type"]) for x in code]
@@ -147,7 +150,7 @@ def main():
     api("/train", {"question": "code_task", "examples": [
         {"input": i, "label": l} for i, l in exs[:ntr]]})
     print(f"[code_task] train={ntr} (uncalibrated, tiny)", flush=True)
-    report["code_task"] = {"train": ntr}
+    report["code_task"] = {"train": ntr, "T": 1.0}
 
     def loadjl(p):
         return [json.loads(l) for l in open(p, encoding="utf-8")]
@@ -163,7 +166,7 @@ def main():
     print(f"[phishing] train={len(tr)} val={len(va)} "
           f"T={m.get('temperature')} ece={m.get('ece_before')}->{m.get('ece_after')}",
           flush=True)
-    report["phishing"] = {"train": len(tr), "val": len(va)}
+    report["phishing"] = {"train": len(tr), "val": len(va), "T": m.get("temperature")}
 
     demo = ([("charged twice on my card", "billing")] * 8
             + [("refund my invoice", "billing")] * 7
@@ -177,8 +180,9 @@ def main():
         {"input": i, "label": l} for i, l in demo[:ntr]]})
     api("/calibrate", {"question": "route_ticket", "validation": [
         {"input": i, "label": l} for i, l in demo[ntr:]]})
+    m = api("/metrics?question=route_ticket")
     print(f"[route_ticket] train={ntr} val={len(demo)-ntr} (demo)", flush=True)
-    report["route_ticket"] = {"train": ntr}
+    report["route_ticket"] = {"train": ntr, "T": m.get("temperature")}
 
     # Production TF-IDF (stable question name; versioned artifacts on disk).
     # Regenerates contrastive coverage EVERY rebuild so the failure mode
@@ -191,15 +195,24 @@ def main():
     full = tr + hand_aug + gen
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.linear_model import LogisticRegression
+    from m2 import calibrate_logits
     vec = TfidfVectorizer(lowercase=True, ngram_range=(1, 2), sublinear_tf=True)
     X = vec.fit_transform([x["input"] for x in full])
     clf = LogisticRegression(max_iter=2000).fit(X, [x["label"] for x in full])
+    va = loadjl(HERE / "phishing_val.jsonl")
+    d = clf.decision_function(vec.transform([x["input"] for x in va]))
+    # Served logits are [-d, +d] (mirrored binary coefs); fit T on VAL (M2 recipe).
+    T, ece_b, ece_a = calibrate_logits(
+        [[-float(v), float(v)] for v in d],
+        [1 if x["label"] == "phishing" else 0 for x in va])
     terms, idf, w = vec.get_feature_names_out(), vec.idf_, clf.coef_[0]
     art = {"model_id": "phishing-tfidf-prod", "classes": ["legitimate", "phishing"],
-           "temperature": 1.0,
+           "temperature": T,
+           "eval": {"ece_before": ece_b, "ece_after": ece_a},
            "intercept": [float(-clf.intercept_[0]), float(clf.intercept_[0])],
            "vocab": {t: [float(idf[j]), float(-w[j]), float(w[j])]
                      for j, t in enumerate(terms)}}
+    print(f"[phishing_tfidf] T={T:.4f} ece={ece_b:.4f}->{ece_a:.4f}", flush=True)
     # rotate previous prod artifact aside (rollback), then write new one
     import shutil
     prod = HERE / "phishing_tfidf_prod.json"
