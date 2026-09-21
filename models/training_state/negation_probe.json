@@ -1,0 +1,482 @@
+[
+ {
+  "id": "P1b",
+  "expect": "phishing",
+  "flip": false,
+  "tfidf": {
+   "label": "phishing",
+   "conf": 0.771,
+   "action": "review",
+   "ms": 2057.8
+  },
+  "logistic": {
+   "label": "phishing",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2052.6
+  },
+  "jev": {
+   "choice": "phishing",
+   "probabilities": {
+    "legitimate": 0.0,
+    "phishing": 1.0
+   },
+   "confidence": 1.0,
+   "usage": {
+    "input_tokens": 463,
+    "output_tokens": 38
+   },
+   "ms": 653.3
+  }
+ },
+ {
+  "id": "P1n",
+  "expect": "legitimate",
+  "flip": true,
+  "tfidf": {
+   "label": "phishing",
+   "conf": 0.651,
+   "action": "review",
+   "ms": 2063.4
+  },
+  "logistic": {
+   "label": "phishing",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2044.5
+  },
+  "jev": {
+   "choice": "legitimate",
+   "probabilities": {
+    "legitimate": 0.6,
+    "phishing": 0.4
+   },
+   "confidence": 0.21,
+   "usage": {
+    "input_tokens": 475,
+    "output_tokens": 38
+   },
+   "ms": 377.0
+  }
+ },
+ {
+  "id": "P2b",
+  "expect": "phishing",
+  "flip": false,
+  "tfidf": {
+   "label": "phishing",
+   "conf": 0.751,
+   "action": "review",
+   "ms": 2015.6
+  },
+  "logistic": {
+   "label": "phishing",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2045.3
+  },
+  "jev": {
+   "choice": "phishing",
+   "probabilities": {
+    "legitimate": 0.0,
+    "phishing": 1.0
+   },
+   "confidence": 1.0,
+   "usage": {
+    "input_tokens": 449,
+    "output_tokens": 38
+   },
+   "ms": 397.8
+  }
+ },
+ {
+  "id": "P2n",
+  "expect": "legitimate",
+  "flip": true,
+  "tfidf": {
+   "label": "phishing",
+   "conf": 0.608,
+   "action": "review",
+   "ms": 2029.0
+  },
+  "logistic": {
+   "label": "phishing",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2031.7
+  },
+  "jev": {
+   "choice": "legitimate",
+   "probabilities": {
+    "phishing": 0.06,
+    "legitimate": 0.94
+   },
+   "confidence": 0.88,
+   "usage": {
+    "input_tokens": 456,
+    "output_tokens": 38
+   },
+   "ms": 369.2
+  }
+ },
+ {
+  "id": "P3b",
+  "expect": "legitimate",
+  "flip": false,
+  "tfidf": {
+   "label": "legitimate",
+   "conf": 0.635,
+   "action": "review",
+   "ms": 2053.1
+  },
+  "logistic": {
+   "label": "phishing",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2035.1
+  },
+  "jev": {
+   "choice": "legitimate",
+   "probabilities": {
+    "legitimate": 0.99,
+    "phishing": 0.01
+   },
+   "confidence": 0.98,
+   "usage": {
+    "input_tokens": 447,
+    "output_tokens": 38
+   },
+   "ms": 436.6
+  }
+ },
+ {
+  "id": "P3n",
+  "expect": "legitimate",
+  "flip": false,
+  "tfidf": {
+   "label": "legitimate",
+   "conf": 0.614,
+   "action": "review",
+   "ms": 2035.9
+  },
+  "logistic": {
+   "label": "phishing",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2033.2
+  },
+  "jev": {
+   "choice": "legitimate",
+   "probabilities": {
+    "legitimate": 0.99,
+    "phishing": 0.01
+   },
+   "confidence": 0.99,
+   "usage": {
+    "input_tokens": 440,
+    "output_tokens": 38
+   },
+   "ms": 345.4
+  }
+ },
+ {
+  "id": "P4b",
+  "expect": "phishing",
+  "flip": false,
+  "tfidf": {
+   "label": "phishing",
+   "conf": 0.607,
+   "action": "review",
+   "ms": 2037.4
+  },
+  "logistic": {
+   "label": "phishing",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2048.6
+  },
+  "jev": {
+   "choice": "phishing",
+   "probabilities": {
+    "legitimate": 0.0,
+    "phishing": 1.0
+   },
+   "confidence": 1.0,
+   "usage": {
+    "input_tokens": 460,
+    "output_tokens": 38
+   },
+   "ms": 439.0
+  }
+ },
+ {
+  "id": "P4n",
+  "expect": "legitimate",
+  "flip": true,
+  "tfidf": {
+   "label": "legitimate",
+   "conf": 0.551,
+   "action": "escalate",
+   "ms": 2039.2
+  },
+  "logistic": {
+   "label": "phishing",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2027.0
+  },
+  "jev": {
+   "choice": "legitimate",
+   "probabilities": {
+    "phishing": 0.05,
+    "legitimate": 0.95
+   },
+   "confidence": 0.9,
+   "usage": {
+    "input_tokens": 459,
+    "output_tokens": 38
+   },
+   "ms": 463.8
+  }
+ },
+ {
+  "id": "P5b",
+  "expect": "legitimate",
+  "flip": false,
+  "tfidf": {
+   "label": "phishing",
+   "conf": 0.557,
+   "action": "escalate",
+   "ms": 2045.2
+  },
+  "logistic": {
+   "label": "phishing",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2031.0
+  },
+  "jev": {
+   "choice": "legitimate",
+   "probabilities": {
+    "legitimate": 0.75,
+    "phishing": 0.25
+   },
+   "confidence": 0.49,
+   "usage": {
+    "input_tokens": 449,
+    "output_tokens": 38
+   },
+   "ms": 438.2
+  }
+ },
+ {
+  "id": "P5n",
+  "expect": "legitimate",
+  "flip": false,
+  "tfidf": {
+   "label": "phishing",
+   "conf": 0.598,
+   "action": "escalate",
+   "ms": 2037.0
+  },
+  "logistic": {
+   "label": "phishing",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2043.5
+  },
+  "jev": {
+   "choice": "legitimate",
+   "probabilities": {
+    "legitimate": 0.83,
+    "phishing": 0.17
+   },
+   "confidence": 0.66,
+   "usage": {
+    "input_tokens": 450,
+    "output_tokens": 38
+   },
+   "ms": 438.9
+  }
+ },
+ {
+  "id": "P6b",
+  "expect": "phishing",
+  "flip": false,
+  "tfidf": {
+   "label": "legitimate",
+   "conf": 0.628,
+   "action": "review",
+   "ms": 2030.5
+  },
+  "logistic": {
+   "label": "legitimate",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2047.4
+  },
+  "jev": {
+   "choice": "phishing",
+   "probabilities": {
+    "legitimate": 0.0,
+    "phishing": 1.0
+   },
+   "confidence": 1.0,
+   "usage": {
+    "input_tokens": 468,
+    "output_tokens": 38
+   },
+   "ms": 387.3
+  }
+ },
+ {
+  "id": "P6n",
+  "expect": "legitimate",
+  "flip": true,
+  "tfidf": {
+   "label": "legitimate",
+   "conf": 0.581,
+   "action": "escalate",
+   "ms": 2059.8
+  },
+  "logistic": {
+   "label": "legitimate",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2030.3
+  },
+  "jev": {
+   "choice": "legitimate",
+   "probabilities": {
+    "legitimate": 0.82,
+    "phishing": 0.18
+   },
+   "confidence": 0.63,
+   "usage": {
+    "input_tokens": 449,
+    "output_tokens": 38
+   },
+   "ms": 409.8
+  }
+ },
+ {
+  "id": "P7b",
+  "expect": "phishing",
+  "flip": false,
+  "tfidf": {
+   "label": "phishing",
+   "conf": 0.835,
+   "action": "review",
+   "ms": 2037.3
+  },
+  "logistic": {
+   "label": "phishing",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2036.7
+  },
+  "jev": {
+   "choice": "phishing",
+   "probabilities": {
+    "legitimate": 0.01,
+    "phishing": 0.99
+   },
+   "confidence": 0.99,
+   "usage": {
+    "input_tokens": 452,
+    "output_tokens": 38
+   },
+   "ms": 460.7
+  }
+ },
+ {
+  "id": "P7n",
+  "expect": "legitimate",
+  "flip": true,
+  "tfidf": {
+   "label": "legitimate",
+   "conf": 0.539,
+   "action": "escalate",
+   "ms": 2031.5
+  },
+  "logistic": {
+   "label": "phishing",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2037.1
+  },
+  "jev": {
+   "choice": "legitimate",
+   "probabilities": {
+    "phishing": 0.28,
+    "legitimate": 0.72
+   },
+   "confidence": 0.43,
+   "usage": {
+    "input_tokens": 450,
+    "output_tokens": 38
+   },
+   "ms": 445.9
+  }
+ },
+ {
+  "id": "P8b",
+  "expect": "legitimate",
+  "flip": false,
+  "tfidf": {
+   "label": "legitimate",
+   "conf": 0.502,
+   "action": "escalate",
+   "ms": 2045.0
+  },
+  "logistic": {
+   "label": "phishing",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2038.4
+  },
+  "jev": {
+   "choice": "legitimate",
+   "probabilities": {
+    "phishing": 0.06,
+    "legitimate": 0.94
+   },
+   "confidence": 0.89,
+   "usage": {
+    "input_tokens": 451,
+    "output_tokens": 38
+   },
+   "ms": 401.3
+  }
+ },
+ {
+  "id": "P8n",
+  "expect": "legitimate",
+  "flip": false,
+  "tfidf": {
+   "label": "phishing",
+   "conf": 0.507,
+   "action": "escalate",
+   "ms": 2072.4
+  },
+  "logistic": {
+   "label": "phishing",
+   "conf": 1.0,
+   "action": "act",
+   "ms": 2045.8
+  },
+  "jev": {
+   "choice": "legitimate",
+   "probabilities": {
+    "legitimate": 0.98,
+    "phishing": 0.02
+   },
+   "confidence": 0.97,
+   "usage": {
+    "input_tokens": 439,
+    "output_tokens": 38
+   },
+   "ms": 502.2
+  }
+ }
+]

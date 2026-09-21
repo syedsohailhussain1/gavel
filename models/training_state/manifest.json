@@ -1,0 +1,36 @@
+{
+ "domain_router": {
+  "train": 895,
+  "val": 226,
+  "T": 2.990299474618539
+ },
+ "task_router": {
+  "train": 484,
+  "val": 124,
+  "T": 4.471739092766757
+ },
+ "dolly_category": {
+  "train": 159,
+  "val": 41,
+  "T": 1.748634283141388
+ },
+ "teacher_style": {
+  "train": 581,
+  "val": 146
+ },
+ "code_task": {
+  "train": 49
+ },
+ "phishing": {
+  "train": 800,
+  "val": 200
+ },
+ "route_ticket": {
+  "train": 24
+ },
+ "phishing_tfidf": {
+  "train": 1210,
+  "artifact": "D:\\gavel\\models\\training_state\\phishing_tfidf_prod.json"
+ },
+ "production_phishing_tfidf": "phishing_tfidf"
+}
