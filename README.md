@@ -244,6 +244,7 @@ Say it plainly: this is a trained specialist against a zero-shot generalist — 
 `docs/cookbooks/` holds end-to-end patterns measured on real runs:
 
 - [200 judgments, one call](docs/cookbooks/batch-200-judgments.md) — 200 mixed choice/yes-no questions in a single `/ask`, 54.4 ms on a 2-core VM, with the caveats written out.
+- [Snake, played by tiny models making typed decisions](docs/cookbooks/snake-typed-decisions.md) — every game move is a live typed decision: a TF-IDF baseline (4.6 s train, 89.4%, ~820 decisions/s) and fine-tuned tiny transformers up to 99.5% at 3.6 ms, including a 4.4M model that clears the board at ~600× the speed of the hosted API we benchmarked.
 
 ## Limits
 
@@ -257,7 +258,7 @@ Say it plainly: this is a trained specialist against a zero-shot generalist — 
 
 ## Roadmap
 
-- **Training pipeline.** `gavel train`: a question spec plus raw text in, a calibrated, abstention-equipped question out. Three rungs, now measured (see [Training evidence](#training-evidence)): an instant TF-IDF/logistic baseline (82.7% on issue triage in 13 s), a SetFit few-shot rung for tens of labels (overtakes same-budget TF-IDF at 32 per class, at steep cost), and teacher distillation (a frontier model labels, a small model learns) for the zero-label case. Making a new question cheap is what closes the gap with zero-shot APIs.
+- **Training pipeline.** `gavel train`: a question spec plus raw text in, a calibrated, abstention-equipped question out. Three rungs, now measured (see [Training evidence](#training-evidence)): an instant TF-IDF/logistic baseline (82.7% on issue triage in 13 s), a SetFit few-shot rung for tens of labels (overtakes same-budget TF-IDF at 32 per class, at steep cost), and teacher distillation (a frontier model labels, a small model learns) for the zero-label case. Making a new question cheap is what closes the gap with zero-shot APIs. A worked speed demo of the full ladder — TF-IDF through fine-tuned transformers playing Snake live — is in the [Snake cookbook](docs/cookbooks/snake-typed-decisions.md).
 - **Persistence.** Save and load trained questions (weights + temperature) so the server survives restarts.
 - **ONNX engine (inference core shipped).** `crates/decide-onnx`: real ONNX Runtime inference behind the same `Engine` trait, selectable per question via `POST /define`, with graceful fallback to the logistic engine. What's still ahead is the distillation pipeline that produces a production-grade model — see `docs/M3-onnx-engine.md`.
 - **Real-data benchmarks.** The synthetic harness is a starting point; we want published numbers on real labeled datasets, wins and losses both.
