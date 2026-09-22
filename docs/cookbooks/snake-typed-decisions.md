@@ -56,6 +56,33 @@ python models/training_state/tiny_export.py \
 # val accuracy 99.5%; ONNX fp32; parity vs torch exact
 ```
 
+## Run it on Apple Silicon (or any machine)
+
+The CPU bench is portable — same script, same model files, no GPU needed:
+
+```bash
+pip install onnxruntime transformers huggingface_hub
+huggingface-cli download syedsohailhussain/gavel-snake-tiny \
+  --include "gtiny-4m/*" --local-dir models/snake
+git clone https://github.com/syedsohailhussain1/gavel.git
+cd gavel
+python models/training_state/tiny_microbench.py \
+  models/snake/gtiny-4m/model.onnx models/snake/gtiny-4m 2 300
+```
+
+Report the `end2end p50` line back to us (machine + chip + threads) and
+we'll add it to the table below. Reference points so far, all batch-1:
+
+| Machine | gtiny-4m end-to-end p50 | vs hosted 436 ms |
+|---|---|---|
+| GTX 1650 box, 8-core Intel CPU | 0.74 ms | ~590× |
+| Apple Silicon (M-series) | you tell us — run the four lines above | ? |
+
+Estimate (not a measurement): M4 single-thread is roughly 2× this Intel
+box with far more memory bandwidth, and ORT's ARM64 path is solid, so
+~0.3–0.5 ms is a reasonable guess. An MLX port (Apple GPU, à la laya-mlx)
+could go further — that work isn't started.
+
 ## How we play
 
 ```bash
