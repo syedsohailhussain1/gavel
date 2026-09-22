@@ -1,16 +1,29 @@
 # Cookbook: Snake, played by tiny models making typed decisions
 
-Every move of a Snake game is a typed decision — `up | down | left | right`
-with a calibrated confidence — made by a small locally-trained model. No
-text generation, no cloud API, no GPU required. This cookbook runs the demo
-two ways (a TF-IDF baseline and a fine-tuned tiny transformer) and reports
-exactly what each cost and scored.
+Snake is the demo vehicle, not the product: it showcases what Gavel is
+capable of. Every move of the game is a typed decision — `up | down | left
+| right` with a calibrated confidence — made by a small locally-trained
+model. No text generation, no cloud API, no GPU required. This cookbook
+runs the demo two ways (a TF-IDF baseline and a fine-tuned tiny
+transformer) and reports exactly what each cost and scored.
 
 Scripts live in `models/training_state/` (`gavel_snake.py` plays and renders,
 `showcase_snake.py` trains the legacy question, `tiny_*.py` train/bench the
 transformers, `legacy_tfidf.py` trains the TF-IDF question). Model weights
-stay on your machine (gitignored) — train them locally with the commands
-below; nothing is downloaded except public base checkpoints.
+stay out of git — either train them locally with the commands below, or
+download the pre-trained ones (no training needed):
+
+```bash
+pip install huggingface_hub onnxruntime transformers
+huggingface-cli download syedsohailhussain/gavel-snake-tiny \
+  --include "gtiny-4m/*" --local-dir models/snake
+python models/training_state/gavel_snake.py play --brain onnx \
+  --onnx models/snake/gtiny-4m/model.onnx --tok models/snake/gtiny-4m \
+  --phased 0 --fps 12
+```
+
+(Replace `gtiny-4m` with `bert-11m` or `distil-66m` for the bigger brains;
+drop `--phased 0` for those two — only gtiny uses the v1 state format.)
 
 ## Setup
 
