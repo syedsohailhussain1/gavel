@@ -1,5 +1,7 @@
 # Cookbook: Snake, played by tiny models making typed decisions
 
+Watch it first (recorded demo): <https://huggingface.co/syedsohailhussain/gavel-snake-tiny/blob/main/assets/Gavel.mp4>
+
 Snake is the demo vehicle, not the product: it showcases what Gavel is
 capable of. Every move of the game is a typed decision — `up | down | left
 | right` with a calibrated confidence — made by a small locally-trained
