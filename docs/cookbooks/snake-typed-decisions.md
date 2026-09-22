@@ -1,10 +1,11 @@
 # Cookbook: Snake, played by tiny models making typed decisions
 
-Every move of a Snake game is a typed decision — `up | down | left | right`
-with a calibrated confidence — made by a small locally-trained model. No
-text generation, no cloud API, no GPU required. This cookbook runs the demo
-two ways (a TF-IDF baseline and a fine-tuned tiny transformer) and reports
-exactly what each cost and scored.
+Snake is the demo vehicle, not the product: it showcases what Gavel is
+capable of. Every move of the game is a typed decision — `up | down | left
+| right` with a calibrated confidence — made by a small locally-trained
+model. No text generation, no cloud API, no GPU required. This cookbook
+runs the demo two ways (a TF-IDF baseline and a fine-tuned tiny
+transformer) and reports exactly what each cost and scored.
 
 Scripts live in `models/training_state/` (`gavel_snake.py` plays and renders,
 `showcase_snake.py` trains the legacy question, `tiny_*.py` train/bench the
