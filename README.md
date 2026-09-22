@@ -244,7 +244,7 @@ Say it plainly: this is a trained specialist against a zero-shot generalist — 
 `docs/cookbooks/` holds end-to-end patterns measured on real runs:
 
 - [200 judgments, one call](docs/cookbooks/batch-200-judgments.md) — 200 mixed choice/yes-no questions in a single `/ask`, 54.4 ms on a 2-core VM, with the caveats written out.
-- [Snake, played by tiny models making typed decisions](docs/cookbooks/snake-typed-decisions.md) — every game move is a live typed decision: a TF-IDF baseline (4.6 s train, 89.4%, ~820 decisions/s) and fine-tuned tiny transformers up to 99.5% at 3.6 ms, including a 4.4M model that clears the board at ~600× the speed of the hosted API we benchmarked.
+- [Snake, played by tiny models making typed decisions](docs/cookbooks/snake-typed-decisions.md) — every game move is a live typed decision: a TF-IDF baseline (4.6 s train, 89.4%, ~820 decisions/s) and fine-tuned tiny transformers up to 99.5% at 3.6 ms, including a 4.4M model that clears the board at ~600× the speed of the hosted API we benchmarked. Pre-trained weights on [Hugging Face](https://huggingface.co/syedsohailhussain/gavel-snake-tiny) — no training needed to run the demo.
 
 ## Limits
 

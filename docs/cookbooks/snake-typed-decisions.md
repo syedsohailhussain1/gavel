@@ -9,8 +9,20 @@ exactly what each cost and scored.
 Scripts live in `models/training_state/` (`gavel_snake.py` plays and renders,
 `showcase_snake.py` trains the legacy question, `tiny_*.py` train/bench the
 transformers, `legacy_tfidf.py` trains the TF-IDF question). Model weights
-stay on your machine (gitignored) — train them locally with the commands
-below; nothing is downloaded except public base checkpoints.
+stay out of git — either train them locally with the commands below, or
+download the pre-trained ones (no training needed):
+
+```bash
+pip install huggingface_hub onnxruntime transformers
+huggingface-cli download syedsohailhussain/gavel-snake-tiny \
+  --include "gtiny-4m/*" --local-dir models/snake
+python models/training_state/gavel_snake.py play --brain onnx \
+  --onnx models/snake/gtiny-4m/model.onnx --tok models/snake/gtiny-4m \
+  --phased 0 --fps 12
+```
+
+(Replace `gtiny-4m` with `bert-11m` or `distil-66m` for the bigger brains;
+drop `--phased 0` for those two — only gtiny uses the v1 state format.)
 
 ## Setup
 
