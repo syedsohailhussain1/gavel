@@ -309,7 +309,7 @@ def decide(text):
             round(out.get("confidence", 0), 3), round(ms, 2))
 
 
-SURVIVE_LEN = 26
+SURVIVE_LEN = 20
 
 
 def phase_of(game, danger):
