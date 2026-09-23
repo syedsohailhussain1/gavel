@@ -59,22 +59,32 @@ print(f"val_accuracy={clf.score(Xv, yv):.4f} (sklearn, pre-export)", flush=True)
 
 import numpy as np
 D = clf.decision_function(Xv)
-sets = D.tolist() if D.ndim > 1 else None
 cls = list(clf.classes_)
-if sets is None:
+W = clf.coef_
+if D.ndim > 1:
+    # Multinomial: take each label's column in LABELS order.
+    col = {c: np.asarray(D[:, cls.index(c)], dtype=float) for c in labels}
+    sets = [[float(col[c][i]) for c in labels] for i in range(len(yv))]
+    co = {c: W[cls.index(c)] for c in labels}
+    bi = {c: float(clf.intercept_[cls.index(c)]) for c in labels}
+else:
+    # Binary sklearn: signed distance for classes_[1]; mirror it so the
+    # served logits are [neg, pos] in LABELS order (same recipe as ladder).
     pos = cls[1]
-    sets = [(d if c == pos else -d) for d in D.tolist() for c in labels]
-    sets = [sets[i * len(labels):(i + 1) * len(labels)] for i in range(len(yv))]
+    d = np.asarray(D.tolist(), dtype=float)
+    co = {c: (W[0] if c == pos else -W[0]) for c in labels}
+    _b = float(clf.intercept_[0])
+    bi = {c: (_b if c == pos else -_b) for c in labels}
+    sets = [[(float(v) if c == pos else -float(v)) for c in labels] for v in d]
 targets = [labels.index(l) for l in yv]
 T, ece_b, ece_a = calibrate_logits(sets, targets)
 print(f"T={T:.4f} ece={ece_b:.4f}->{ece_a:.4f}", flush=True)
 
 terms, idf = vec.get_feature_names_out(), vec.idf_
-W = clf.coef_
-art = {"model_id": "snake-tfidf-prod", "classes": labels, "temperature": T,
+art = {"model_id": QUESTION + "-prod", "classes": labels, "temperature": T,
        "eval": {"ece_before": ece_b, "ece_after": ece_a},
-       "intercept": [float(clf.intercept_[cls.index(c)]) for c in labels],
-       "vocab": {t: [float(idf[j])] + [float(W[cls.index(c)][j]) for c in labels]
+       "intercept": [bi[c] for c in labels],
+       "vocab": {t: [float(idf[j])] + [float(co[c][j]) for c in labels]
                  for j, t in enumerate(terms)}}
 if ART.exists():
     i = 1

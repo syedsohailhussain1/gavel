@@ -245,6 +245,7 @@ Say it plainly: this is a trained specialist against a zero-shot generalist — 
 
 - [200 judgments, one call](docs/cookbooks/batch-200-judgments.md) — 200 mixed choice/yes-no questions in a single `/ask`, 54.4 ms on a 2-core VM, with the caveats written out.
 - [Snake, played by tiny models making typed decisions](docs/cookbooks/snake-typed-decisions.md) — a capability demo (the game is the showroom, Gavel is the product): every move is a live typed decision from a TF-IDF baseline (4.6 s train, 89.4%, ~820 decisions/s) or a fine-tuned tiny transformer up to 99.5% at 3.6 ms, including a 4.4M model that clears the board at ~600× the speed of the hosted API we benchmarked. [Watch the demo video](https://huggingface.co/syedsohailhussain/gavel-snake-tiny/blob/main/assets/Gavel.mp4). Pre-trained weights on [Hugging Face](https://huggingface.co/syedsohailhussain/gavel-snake-tiny) — no training needed to run the demo.
+- [Tetris, one typed decision per piece](docs/cookbooks/tetris-typed-decisions.md) — second capability demo, same pattern: a heuristic shortlists two landings, one `/ask` call picks the cleaner one (0.3 s train, 98.4% val, 0.2 ms/decision, ~675 pieces/s), with disclosed heuristic fallbacks and live CPU/GPU load on screen.
 
 ## Limits
 
