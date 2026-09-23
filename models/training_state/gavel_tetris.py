@@ -349,6 +349,7 @@ def cmd_play(a):
     stamps = deque(maxlen=60)
     total = 0
     t_start = time.perf_counter()
+    last_render = 0.0
     piece = next(gen)
     nxt = next(gen)
     live = None if a.headless else Live(console=console, auto_refresh=False)
@@ -398,9 +399,17 @@ def cmd_play(a):
                     "lines": board.lines, "pieces": board.pieces,
                     "alive": board.alive}
             if live:
-                # render needs rows; adapt snapshot shape
-                live.update(render(_view(board), piece, nxt, dec, stats),
-                            refresh=True)
+                # render needs rows; adapt snapshot shape. At max speed the
+                # terminal can't take 600 redraws/sec (conhost stalls, then
+                # bursts) — throttle display refreshes, game stays unpaced.
+                if a.max_speed:
+                    if now - last_render >= 1.0 / a.display_fps:
+                        live.update(render(_view(board), piece, nxt, dec, stats),
+                                    refresh=True)
+                        last_render = now
+                else:
+                    live.update(render(_view(board), piece, nxt, dec, stats),
+                                refresh=True)
             if rec:
                 rec.write(json.dumps({"type": "frame", "at": now - t_start,
                                       "game": snap, "piece": piece,
@@ -492,6 +501,9 @@ def main(argv=None):
     pl.add_argument("--drop-frames", type=int, default=5,
                     help="paced mode: animation frames for the falling piece "
                          "(0 = instant lock)")
+    pl.add_argument("--display-fps", type=float, default=30,
+                    help="max-speed mode: cap screen refreshes/sec so the "
+                         "terminal can keep up (game runs unpaced)")
     pl.add_argument("--record", default=None)
     pl.add_argument("--headless", action="store_true")
     pl.add_argument("--unassisted", action="store_true",
