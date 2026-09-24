@@ -114,13 +114,25 @@ def encode(ax, ay, danger, heading):
     return " ".join(parts)
 
 
+def choice_suffix(safe_moves):
+    """Options token for the choice architecture: one alphanumeric token
+    per safe move (underscore format, so the logistic engine keeps each as
+    a single unigram). Byte-identical wherever used -- training and serve
+    must build the same string for the same state. MOVES order."""
+    return " || " + " ".join("options_%s" % m for m in MOVES
+                             if m in safe_moves)
+
+
 def legacy_text(game, heading):
     """Legacy (server/logistic) input: EXACT rollout format the retrained
     question learned (tiny_snake3: phase prefix + bucketed per-move facts).
-    Must match character-for-character in structure (values vary)."""
+    Must match character-for-character in structure (values vary).
+    Pillar cells report as 'pillar' (never 'free'): the text must not lie
+    about walls. Empty-board strings are byte-identical to before."""
     hx, hy = game.snake[0]
     body = list(game.snake)
     occ = set(body)
+    obs = set(map(tuple, getattr(game, "obstacles", None) or ()))
     tail = body[-1]
 
     def fb(d):
@@ -138,6 +150,8 @@ def legacy_text(game, heading):
         t = (hx + dx, hy + dy)
         if not (0 <= t[0] < game.w and 0 <= t[1] < game.h):
             st = "wall"
+        elif t in obs:
+            st = "pillar"
         elif t in occ and t != tail:
             st = "body"
         elif t == tail:
@@ -145,7 +159,8 @@ def legacy_text(game, heading):
         else:
             st = "free"
         fd = abs(game.apple[0] - hx - dx) + abs(game.apple[1] - hy - dy)
-        legal, space, _ = flood_info(body, game.apple, game.w, game.h, m)
+        legal, space, _ = flood_info(body, game.apple, game.w, game.h, m,
+                                     getattr(game, "obstacles", None))
         # Single alphanumeric token per move-fact: the logistic engine splits
         # on punctuation, so up:free fC sO would shred into unbound pieces.
         mv.append("%s_%s_f%s_s%s" % (m, st, fb(fd), sb(space) if legal else "T"))
@@ -166,9 +181,10 @@ def teacher(ax, ay, danger):
 
 
 class Game:
-    def __init__(self, width=12, height=12, seed=7):
+    def __init__(self, width=12, height=12, seed=7, obstacles=None):
         self.w, self.h = width, height
         self.rng = random_mod(seed)
+        self.obstacles = set(map(tuple, obstacles or ()))
         cyc = cycle_index(width, height)
         if cyc is not None:
             # Start on 3 consecutive cycle cells near the middle so the
@@ -190,7 +206,7 @@ class Game:
         self.won = False
 
     def _spawn(self):
-        occ = set(self.snake)
+        occ = set(self.snake) | set(self.obstacles)
         free = [(x, y) for x in range(self.w) for y in range(self.h)
                 if (x, y) not in occ]
         if not free:
@@ -208,6 +224,7 @@ class Game:
 
     def _reachable(self, occ):
         from collections import deque as _dq
+        occ = set(occ) | set(self.obstacles)
         seen = {self.snake[0]}
         q = _dq([self.snake[0]])
         while q:
@@ -224,11 +241,14 @@ class Game:
         hx, hy = self.snake[0]
         body = set(self.snake)
         tail = self.snake[-1]
+        obs = set(self.obstacles)
         out = {}
         for m, (dx, dy) in DELTA.items():
             nx, ny = hx + dx, hy + dy
             if not (0 <= nx < self.w and 0 <= ny < self.h):
                 out[m] = True
+            elif (nx, ny) in obs:
+                out[m] = True  # obstacle pillar: a wall that moved indoors
             elif (nx, ny) in body and (nx, ny) != tail:
                 out[m] = True
             elif (nx, ny) == tail and self.apple is not None \
@@ -248,6 +268,9 @@ class Game:
         if not (0 <= head[0] < self.w and 0 <= head[1] < self.h):
             self.alive, self.death = False, "wall"
             return False
+        if head in set(self.obstacles):
+            self.alive, self.death = False, "obstacle"
+            return False
         if head in set(self.snake) and (head != self.snake[-1] or (
                 self.apple is not None and head == self.apple)):
             # Tail cell vacates on a non-growing step; eating into it is body.
@@ -266,9 +289,37 @@ class Game:
     def snapshot(self):
         return {"w": self.w, "h": self.h, "body": [list(c) for c in self.snake],
                 "apple": list(self.apple) if self.apple else None,
+                "obstacles": [list(c) for c in sorted(self.obstacles)],
                 "score": self.score, "length": len(self.snake),
                 "ticks": self.ticks, "alive": self.alive, "death": self.death,
                 "won": self.won}
+
+
+def build_obstacles(w, h, n, seed, forbidden=()):
+    """N random blocked cells, never on `forbidden` (snake + head neighbors)."""
+    import random as _r
+    if n <= 0:
+        return set()
+    rng = _r.Random(seed)
+    forbid = set(map(tuple, forbidden))
+    cand = [(x, y) for x in range(w) for y in range(h) if (x, y) not in forbid]
+    n = min(n, len(cand))
+    return set(rng.sample(cand, n)) if n else set()
+
+
+def ensure_obstacles(game, n, seed):
+    """Attach a stable obstacle layout to `game` (kept off the snake)."""
+    if n <= 0:
+        game.obstacles = set()
+        return game.obstacles
+    hx, hy = game.snake[0]
+    forbidden = set(map(tuple, game.snake))
+    for dx, dy in DELTA.values():
+        forbidden.add((hx + dx, hy + dy))
+    game.obstacles = build_obstacles(game.w, game.h, n, seed, forbidden)
+    if game.apple is not None and tuple(game.apple) in game.obstacles:
+        game.apple = game._spawn()
+    return game.obstacles
 
 
 class random_mod:
@@ -317,9 +368,10 @@ def phase_of(game, danger):
     survive when long, cramped, or food cut off — else hunt."""
     body = list(game.snake)
     n = len(body)
-    roomy = any(flood_info(body, game.apple, game.w, game.h, m)[1] >= 2 * n
+    obs = getattr(game, "obstacles", None)
+    roomy = any(flood_info(body, game.apple, game.w, game.h, m, obs)[1] >= 2 * n
                 for m in MOVES if not danger.get(m))
-    food_ok = any(flood_info(body, game.apple, game.w, game.h, m)[2]
+    food_ok = any(flood_info(body, game.apple, game.w, game.h, m, obs)[2]
                   for m in MOVES if not danger.get(m))
     return "survive" if (n >= SURVIVE_LEN or not roomy or not food_ok) else "hunt"
 
@@ -348,7 +400,8 @@ def brain_text(game, heading, phased=True):
         else:
             st = "free"
         fd = abs(game.apple[0] - hx - dx) + abs(game.apple[1] - hy - dy)
-        legal, space, _ = flood_info(body, game.apple, game.w, game.h, m)
+        legal, space, _ = flood_info(body, game.apple, game.w, game.h, m,
+                                     getattr(game, "obstacles", None))
         mv.append("%s:%s f%d s%d" % (m, st, fd, space if legal else 0))
     parts.append(" | ".join(mv))
     return " || ".join(parts)
@@ -385,6 +438,118 @@ class OnnxBrain:
         ex = np.exp(logits - logits.max())
         conf = float(ex.max() / ex.sum())
         return MOVES[int(logits.argmax())], round(conf, 3), round(ms, 2)
+
+
+class ImmortalBrain:
+    """Provably-safe Hamiltonian brain (vendored snake-immortal engine).
+
+    Wraps immortal.POLICIES so the demo can play with zero shield vetoes:
+    decide_game(game) returns (move, confidence, ms). Confidence is 1.0
+    by construction (the proof, not a softmax).
+    """
+
+    def __init__(self, policy_name="jumps-bfs"):
+        try:
+            from immortal.policies import POLICIES as _P
+        except ImportError:
+            import os as _os
+            import sys as _sys
+            _sys.path.insert(
+                0, _os.path.join(_os.path.dirname(__file__), "immortal"))
+            from policies import POLICIES as _P
+        if policy_name not in _P:
+            raise ValueError("unknown immortal policy: %s" % policy_name)
+        self._factory = _P[policy_name]
+        self.policy_name = policy_name
+        self.policy = None
+        self._game_id = None
+
+    def decide_game(self, game):
+        import time as _t
+        if self.policy is None or id(game) != self._game_id:
+            self.policy = self._factory()
+            self.policy.reset(game)
+            self._game_id = id(game)
+        # Refresh obstacle view: layout is stable per run, but a fresh
+        # policy object is cheap insurance against stale blocks.
+        if hasattr(self.policy, "_obs"):
+            self.policy._obs = set(map(tuple, getattr(game, "obstacles", None)
+                                         or ()))
+        self._z_before = getattr(self.policy, "_z", None)
+        t0 = _t.perf_counter()
+        move = self.policy.decide(game)
+        ms = (_t.perf_counter() - t0) * 1000
+        return move, 1.0, round(ms, 4)
+
+    def correct(self, executed_cell):
+        """Re-sync the guard after the shield overrode a proposal."""
+        z_before = getattr(self, "_z_before", None)
+        corr = getattr(self.policy, "correct_z", None)
+        if corr is not None and z_before is not None:
+            corr(executed_cell, z_before)
+
+    def safe_moves(self, game):
+        """Pure safe-candidate query for the choice architecture.
+
+        Returns the proof's candidate moves (cycle step + valid jumps) as a
+        distinct-move list WITHOUT deciding or mutating guard state. The
+        caller advances the guard for the EXECUTED cell via correct().
+        Requires a policy with candidates() (JumpPolicy)."""
+        if self.policy is None or id(game) != self._game_id:
+            self.policy = self._factory()
+            self.policy.reset(game)
+            self._game_id = id(game)
+        if hasattr(self.policy, "_obs"):
+            self.policy._obs = set(map(tuple, getattr(game, "obstacles", None)
+                                         or ()))
+        self._z_before = getattr(self.policy, "_z", None)
+        hx, hy = game.snake[0]
+        moves = []
+        for c in self.policy.candidates(game):
+            m = self.policy._move_of.get((c[0] - hx, c[1] - hy))
+            if m is not None and m not in moves:
+                moves.append(m)
+        return moves
+
+
+class RouterBrain:
+    """BFS hunt + flood survival brain for obstacle boards.
+
+    No Hamiltonian backbone: every move routes toward the apple over free
+    cells (body + pillars blocked, tail vacates), gated by flood-fill
+    survival, tail-chase, and max-room fallbacks via the pick_move cascade.
+    Vetoes are counted honestly against the BFS proposal. This is the
+    brain to use with --obstacles; immortal owns the empty board.
+    """
+
+    name = "router"
+
+    def __init__(self):
+        self.last_intervened = False
+
+    def decide_game(self, game, unassisted=False):
+        import time as _t
+        t0 = _t.perf_counter()
+        body = list(game.snake)
+        obs = set(getattr(game, "obstacles", None) or ())
+        danger = game.danger()
+        hx, hy = game.snake[0]
+        if game.apple is not None:
+            ax, ay = game.apple[0] - hx, game.apple[1] - hy
+        else:
+            ax, ay = 0, 0
+        raw = food_step(body, game.apple, game.w, game.h, obs)
+        if raw is None or danger.get(raw):
+            raw = teacher(ax, ay, danger)
+        if unassisted:
+            self.last_intervened = False
+            ms = (_t.perf_counter() - t0) * 1000
+            return (raw if raw in MOVES else "up"), 1.0, round(ms, 4)
+        move, intervened = pick_move(game, ax, ay, danger, raw, False,
+                                     False, False)
+        self.last_intervened = intervened
+        ms = (_t.perf_counter() - t0) * 1000
+        return move, 1.0, round(ms, 4)
 
 
 ARROWS = {"up": "▲", "down": "▼", "left": "◄", "right": "►"}
@@ -433,13 +598,24 @@ def cycle_step(body, w, h):
     return None
 
 
-def _apply(body, apple, w, h, move):
+_NO_OBS = frozenset()
+
+
+def _obs_norm(obs):
+    return _NO_OBS if not obs else set(map(tuple, obs))
+
+
+def _apply(body, apple, w, h, move, obs=None):
     """Simulate one move. Returns (new_body, ate) or None if instantly fatal.
-    Tail vacates on a non-growing step; eating into the tail cell is fatal."""
+    Tail vacates on a non-growing step; eating into the tail cell is fatal.
+    Pillars (obs) never vacate."""
     hx, hy = body[0]
     dx, dy = DELTA[move]
     head = (hx + dx, hy + dy)
     if not (0 <= head[0] < w and 0 <= head[1] < h):
+        return None
+    obs = _obs_norm(obs)
+    if head in obs:
         return None
     eats = apple is not None and head == tuple(apple)
     occ = set(body)
@@ -450,10 +626,10 @@ def _apply(body, apple, w, h, move):
     return ([head] + list(body)) if eats else ([head] + list(body[:-1])), eats
 
 
-def _mobility(nbody, ate, w, h):
+def _mobility(nbody, ate, w, h, obs=None):
     """Free neighbors of the new head — corridor descents have exactly 1
     (forward), open board 2+. Cheap topological signal max-space can't see."""
-    occ = set(nbody)
+    occ = set(nbody) | _obs_norm(obs)
     if not ate:
         occ.discard(nbody[-1])  # tail vacates next step
     hx, hy = nbody[0]
@@ -462,38 +638,40 @@ def _mobility(nbody, ate, w, h):
                and (hx + dx, hy + dy) not in occ)
 
 
-def _deep(nbody, apple, w, h, depth):
+def _deep(nbody, apple, w, h, depth, obs=None):
     """Best (ate, space) reachable from this position within `depth` replies.
     Apple persists across plies (it only moves on eat, which is terminal).
     Returns None if no legal reply exists."""
+    obs = _obs_norm(obs)
     best = None
     for r in MOVES:
-        st = _apply(nbody, apple, w, h, r)
+        st = _apply(nbody, apple, w, h, r, obs)
         if st is None:
             continue
         nb2, ate = st
         if ate:
             key = (1, 10 ** 9)
         elif depth <= 1:
-            legal, space, _ = flood_info(nb2, apple, w, h, r)
+            legal, space, _ = flood_info(nb2, apple, w, h, r, obs)
             key = (0, space) if legal else None
         else:
-            sub = _deep(nb2, apple, w, h, depth - 1)
+            sub = _deep(nb2, apple, w, h, depth - 1, obs)
             key = (0, sub[1]) if sub is not None else None
         if key is not None and (best is None or key > best):
             best = key
     return best
 
 
-def food_step(body, apple, w, h):
+def food_step(body, apple, w, h, obs=None):
     """BFS shortest path from head to food through free cells; first step.
-    Unlike greedy min-distance, this routes AROUND the body. The tail cell
-    counts as free (it vacates) unless the food sits on it. None if no path."""
+    Unlike greedy min-distance, this routes AROUND the body (and pillars).
+    The tail cell counts as free (it vacates) unless the food sits on it.
+    None if no path."""
     from collections import deque as _dq
     if apple is None:
         return None
     target = tuple(apple)
-    occ = set(body)
+    occ = set(body) | _obs_norm(obs)
     if target != body[-1]:
         occ.discard(body[-1])
     prev = {body[0]: None}
@@ -516,13 +694,13 @@ def food_step(body, apple, w, h):
     return prev[cur][1] if prev[cur] is not None else None
 
 
-def tail_step(body, apple, w, h):
+def tail_step(body, apple, w, h, obs=None):
     """BFS shortest path from head to tail through free cells; return first step.
     Chasing the tail is the classic survival strategy: the tail always vacates,
     so reaching it resets the position. Returns None if unreachable."""
     from collections import deque as _dq
     tail = body[-1]
-    occ = set(body)
+    occ = set(body) | _obs_norm(obs)
     if not (apple is not None and tuple(apple) == tail):
         occ.discard(tail)  # tail vacates on a non-growing step
     prev = {body[0]: None}
@@ -545,7 +723,7 @@ def tail_step(body, apple, w, h):
     return prev[cur][1] if prev[cur] is not None else None
 
 
-def flood_info(body, apple, w, h, move):
+def flood_info(body, apple, w, h, move, obs=None):
     """Simulate one move; return (legal, free_space, food_reachable)."""
     from collections import deque as _dq
     hx, hy = body[0]
@@ -553,8 +731,11 @@ def flood_info(body, apple, w, h, move):
     head = (hx + dx, hy + dy)
     if not (0 <= head[0] < w and 0 <= head[1] < h):
         return False, 0, False
+    obs = _obs_norm(obs)
+    if head in obs:
+        return False, 0, False
     eats = apple is not None and head == apple
-    occ = set(body)
+    occ = set(body) | obs
     if not eats:
         occ.discard(body[-1])  # tail moves away on a non-growing step
     if head in occ:
@@ -571,12 +752,32 @@ def flood_info(body, apple, w, h, move):
     return True, len(seen), (apple in seen)
 
 
-def flood_ok(body, apple, w, h, move):
+def flood_ok(body, apple, w, h, move, obs=None):
     """Lookahead: would this move leave the snake trapped?
     Requires the food to stay reachable and enough free room to fit the body.
     Cheap on a 12x12 board (a few hundred cells)."""
-    legal, space, food = flood_info(body, apple, w, h, move)
+    legal, space, food = flood_info(body, apple, w, h, move, obs)
     return legal and food and space >= len(body) + 1
+
+
+def tail_safe(body, apple, w, h, move, obs=None):
+    """Would this move keep the tail reachable afterwards?
+
+    Structural survival gate for obstacle boards: a snake that can always
+    reach its own tail can never be fully trapped (following the tail
+    path shortens it every move). Only enforced when pillars exist --
+    empty boards rest on the Hamiltonian proof, untouched. Exempts the
+    board-clearing eat (no free cells left = win, tail trivially
+    unreachable)."""
+    obs = _obs_norm(obs)
+    st = _apply(body, apple, w, h, move, obs)
+    if st is None:
+        return False
+    nbody, _ = st
+    free = w * h - len(nbody) - len(obs)
+    if free <= 0:
+        return True  # board clear: game won, not trapped
+    return tail_step(nbody, apple, w, h, obs) is not None
 
 
 _TRACE = None
@@ -603,6 +804,7 @@ def pick_move(game, ax, ay, danger, raw, unassisted, loop_break=False,
         _T("unassisted")
         return (raw if raw in MOVES else teacher(ax, ay, danger)), False
     body = list(game.snake)
+    obs = set(getattr(game, "obstacles", None) or ())
     cands = []
     for m in ([raw] if raw in MOVES else []) + [teacher(ax, ay, danger)] + list(MOVES):
         if m not in cands:
@@ -632,7 +834,7 @@ def pick_move(game, ax, ay, danger, raw, unassisted, loop_break=False,
             for m in cands:
                 if danger.get(m):
                     continue
-                st = _apply(body, game.apple, game.w, game.h, m)
+                st = _apply(body, game.apple, game.w, game.h, m, obs)
                 if st is not None and st[1] and _ord(st[0]):
                     _T("keeps-eat")
                     return m, (m != raw)
@@ -644,13 +846,13 @@ def pick_move(game, ax, ay, danger, raw, unassisted, loop_break=False,
                     _T("cycle")
                     return cm, (cm != raw)
             if raw in MOVES and not danger.get(raw):
-                st = _apply(body, game.apple, game.w, game.h, raw)
+                st = _apply(body, game.apple, game.w, game.h, raw, obs)
                 if st is not None and _ord(st[0]):
                     _T("raw-keeping")
                     return raw, False
             t = teacher(ax, ay, danger)
             if not danger.get(t):
-                st = _apply(body, game.apple, game.w, game.h, t)
+                st = _apply(body, game.apple, game.w, game.h, t, obs)
                 if st is not None and _ord(st[0]):
                     _T("teacher-keeping")
                     return t, (t != raw)
@@ -660,7 +862,7 @@ def pick_move(game, ax, ay, danger, raw, unassisted, loop_break=False,
             for m in cands:
                 if danger.get(m):
                     continue
-                st = _apply(body, game.apple, game.w, game.h, m)
+                st = _apply(body, game.apple, game.w, game.h, m, obs)
                 if st is not None and _ord(st[0]):
                     _T("rejoin")
                     return m, (m != raw)
@@ -668,9 +870,12 @@ def pick_move(game, ax, ay, danger, raw, unassisted, loop_break=False,
     # Watchdog first: if set, the brain is circling — food pursuit
     # outranks everything except instant survival (checked inside).
     if loop_break:
-        pursue = food_step(body, game.apple, game.w, game.h)
-        if pursue is not None and not danger.get(pursue):
-            legal, space, _ = flood_info(body, game.apple, game.w, game.h, pursue)
+        pursue = food_step(body, game.apple, game.w, game.h, obs)
+        if pursue is not None and not danger.get(pursue) \
+                and (not obs or tail_safe(body, game.apple, game.w, game.h,
+                                          pursue, obs)):
+            legal, space, _ = flood_info(body, game.apple, game.w, game.h,
+                                         pursue, obs)
             if legal and space >= len(body) + 1:
                 _T("loop-bfs")
                 return pursue, (pursue != raw)
@@ -678,27 +883,38 @@ def pick_move(game, ax, ay, danger, raw, unassisted, loop_break=False,
             (m for m in MOVES if not danger.get(m)),
             key=lambda m: abs(ax - DELTA[m][0]) + abs(ay - DELTA[m][1]))
         for m in by_dist:
-            if flood_ok(body, game.apple, game.w, game.h, m):
+            if flood_ok(body, game.apple, game.w, game.h, m, obs) \
+                    and (not obs or tail_safe(body, game.apple, game.w,
+                                              game.h, m, obs)):
                 _T("loop-greedy")
                 return m, (m != raw)
     # Open position: brain first, teacher second (both must be trap-free).
     # This is the scoring engine — it stays first so the demo shows real
-    # model decisions with minimal vetoes.
+    # model decisions with minimal vetoes. On pillar boards each must also
+    # keep the tail reachable (the structural anti-trap invariant).
     if raw in MOVES and not danger.get(raw) \
-            and flood_ok(body, game.apple, game.w, game.h, raw):
+            and flood_ok(body, game.apple, game.w, game.h, raw, obs) \
+            and (not obs or tail_safe(body, game.apple, game.w, game.h,
+                                      raw, obs)):
         _T("raw")
         return raw, False
     t = teacher(ax, ay, danger)
-    if not danger.get(t) and flood_ok(body, game.apple, game.w, game.h, t):
+    if not danger.get(t) \
+            and flood_ok(body, game.apple, game.w, game.h, t, obs) \
+            and (not obs or tail_safe(body, game.apple, game.w, game.h,
+                                      t, obs)):
         _T("teacher")
         return t, (t != raw)
     # Constrained: commit to the food path (BFS routes around the body) —
     # but ONLY with room to survive it. Chasing into a shrinking pocket
     # eats the snake into a coffin (verified: space 47→1 over 40 moves).
     # Without room, fall through to max-space survival below.
-    pursue = food_step(body, game.apple, game.w, game.h)
-    if pursue is not None and not danger.get(pursue):
-        legal, space, _ = flood_info(body, game.apple, game.w, game.h, pursue)
+    pursue = food_step(body, game.apple, game.w, game.h, obs)
+    if pursue is not None and not danger.get(pursue) \
+            and (not obs or tail_safe(body, game.apple, game.w, game.h,
+                                      pursue, obs)):
+        legal, space, _ = flood_info(body, game.apple, game.w, game.h,
+                                     pursue, obs)
         if legal and space >= len(body) + 1:
             _T("pursue")
             return pursue, (pursue != raw)
@@ -707,7 +923,7 @@ def pick_move(game, ax, ay, danger, raw, unassisted, loop_break=False,
     # body is cycle-ordered; otherwise it could steer into the coil.
     safe_moves = [m for m in MOVES if not danger.get(m)]
     flood_safe = [m for m in safe_moves
-                  if flood_ok(body, game.apple, game.w, game.h, m)]
+                  if flood_ok(body, game.apple, game.w, game.h, m, obs)]
     cruise = (cyc is not None and (len(body) >= max(20, game.w * game.h // 5)
                                    or len(flood_safe) <= 1))
     if cruise:
@@ -719,14 +935,18 @@ def pick_move(game, ax, ay, danger, raw, unassisted, loop_break=False,
                 continue
             tt = (hx + DELTA[m][0], hy + DELTA[m][1])
             if (game.apple is not None and tt == tuple(game.apple)
-                    and flood_ok(body, game.apple, game.w, game.h, m)):
+                    and flood_ok(body, game.apple, game.w, game.h, m, obs)
+                    and (not obs or tail_safe(body, game.apple, game.w,
+                                              game.h, m, obs))):
                 _T("cruise-eat")
                 return m, (m != raw)  # shortcut: safe adjacent food
         ii = [idx[c] for c in reversed(body)]
         ds = [(b - a) % N for a, b in zip(ii, ii[1:])]
         if all(d > 0 for d in ds) and sum(ds) < N:
             cm = cycle_step(body, game.w, game.h)
-            if cm is not None and not danger.get(cm):
+            if cm is not None and not danger.get(cm) \
+                    and (not obs or tail_safe(body, game.apple, game.w,
+                                              game.h, cm, obs)):
                 _T("cycle")
                 return cm, (cm != raw)
     # Narrowing: adaptive-depth escape search (2-ply normally, 4-ply when
@@ -735,29 +955,31 @@ def pick_move(game, ax, ay, danger, raw, unassisted, loop_break=False,
     # Value = most free space reachable, eating preferred.
     constrained = len([m for m in MOVES
                        if not danger.get(m)
-                       and flood_ok(body, game.apple, game.w, game.h, m)]) <= 2
+                       and flood_ok(body, game.apple, game.w, game.h, m, obs)]) <= 2
     depth = 4 if constrained else 2
     best_m, best_key = None, None
     for m in MOVES:
         if danger.get(m):
             continue
-        st = _apply(body, game.apple, game.w, game.h, m)
+        st = _apply(body, game.apple, game.w, game.h, m, obs)
         if st is None:
             continue
         nbody, ate = st
         if ate:
             key = (1, 10 ** 9, 0)
         else:
-            sub = _deep(nbody, game.apple, game.w, game.h, depth)
-            mob = _mobility(nbody, False, game.w, game.h)
+            sub = _deep(nbody, game.apple, game.w, game.h, depth, obs)
+            mob = _mobility(nbody, False, game.w, game.h, obs)
             key = (0, mob, sub[1]) if sub is not None else None
         if key is not None and (best_key is None or key > best_key):
             best_m, best_key = m, key
-    if best_m is not None:
+    if best_m is not None \
+            and (not obs or tail_safe(body, game.apple, game.w, game.h,
+                                      best_m, obs)):
         _T("search%d" % depth)
         return best_m, (best_m != raw)
     # Nothing survives search: tail-chase, then max room, then raw.
-    chase = tail_step(body, game.apple, game.w, game.h)
+    chase = tail_step(body, game.apple, game.w, game.h, obs)
     if chase is not None and not danger.get(chase):
         _T("tail")
         return chase, (chase != raw)
@@ -765,7 +987,7 @@ def pick_move(game, ax, ay, danger, raw, unassisted, loop_break=False,
     for m in MOVES:
         if danger.get(m):
             continue
-        legal, space, _ = flood_info(body, game.apple, game.w, game.h, m)
+        legal, space, _ = flood_info(body, game.apple, game.w, game.h, m, obs)
         if legal and space > room:
             room, room_m = space, m
     if room_m is not None:
@@ -807,6 +1029,8 @@ def render(board, dec, stats):
         put(top + 1 + y, left + bw * 2 + 1, "│", DIM)
         put(top + 1 + y, left + 1, "· " * bw, "#14262d")
     body = board["body"]
+    for ox, oy in board.get("obstacles") or []:
+        put(top + oy + 1, left + 1 + 2 * ox, "▓▓", "#5a3b3b")
     head_arrow = ARROWS.get(dec.get("executed") or dec.get("proposed"), "██")
     for i, (x, y) in reversed(list(enumerate(body))):
         f = 1 - i / max(1, len(body))
@@ -883,7 +1107,11 @@ def cmd_play(a):
     from rich.console import Console
     from rich.live import Live
     brain = None
+    safety = None
     global QUESTION
+    if a.safe_choices and a.brain != "server":
+        print("--safe-choices only applies to --brain server", file=sys.stderr)
+        return 2
     if a.brain == "server":
         QUESTION = a.question
         model_name = "legacy-tfidf · " + a.question
@@ -897,6 +1125,35 @@ def cmd_play(a):
                   file=sys.stderr)
             return 2
         footer = "gavel-snake · every move is a live /ask call"
+        if a.safe_choices:
+            if cycle_index(a.width, a.height) is None:
+                print("--safe-choices needs an even board (Hamiltonian "
+                      "cycle is impossible on odd x odd)", file=sys.stderr)
+                return 2
+            safety = ImmortalBrain("jumps-bfs")  # filter only: generates
+            # the proof's candidate set; the MODEL chooses among it.
+            router_fb = RouterBrain()  # backstop: when pillars sever the
+            # backbone and no safe move survives, route instead of dying.
+            footer = ("gavel-snake · every move is a live /ask call, "
+                      "constrained to the proof's safe set")
+    elif a.brain == "immortal":
+        try:
+            brain = ImmortalBrain(a.immortal_policy)
+        except Exception as e:
+            print(f"immortal brain failed to load: {e}", file=sys.stderr)
+            return 2
+        model_name = "immortal · " + brain.policy_name
+        tag = "HAMILTONIAN · PROOF"
+        engine_line = "hamiltonian+jumps · CPU"
+        train1, train2 = "Train 0s · proof", "Val 0 deaths · wins"
+        footer = "gavel-snake · every move is a proven-safe jump"
+    elif a.brain == "router":
+        brain = RouterBrain()
+        model_name = "router · bfs+flood"
+        tag = "ROUTING · NO MODEL"
+        engine_line = "bfs+flood · CPU"
+        train1, train2 = "Train 0s · heuristic", "No proof · shield-gated"
+        footer = "gavel-snake · every move is routed live"
     else:
         try:
             brain = OnnxBrain(a.onnx, a.tok, a.threads)
@@ -929,13 +1186,31 @@ def cmd_play(a):
     # Startup calibration: the brain's raw ceiling (batch-1, no game loop,
     # no shield) measured live on this machine — shown as BRAIN MAX even
     # when the game itself is paced to watchable fps.
-    g0 = Game(a.width, a.height, a.seed)
+    obs_seed = a.obstacle_seed if a.obstacle_seed >= 0 else a.seed
+
+    def _mk(seed):
+        g = Game(a.width, a.height, seed)
+        ensure_obstacles(g, a.obstacles, obs_seed)
+        return g
+
+    g0 = _mk(a.seed)
     hx0, hy0 = g0.snake[0]
     ax0, ay0 = g0.apple[0] - hx0, g0.apple[1] - hy0
     d0 = g0.danger()
-    if brain is None:
+    if brain is None and safety is None:
         cal = [lambda h=h: decide(legacy_text(g0, h))
                for h in ("up", "down", "left", "right")]
+    elif a.brain == "server" and a.safe_choices:
+        if getattr(g0, "obstacles", None):
+            _sm0 = [m for m in MOVES if not g0.danger().get(m)]
+        else:
+            _sm0 = safety.safe_moves(g0)
+        _tx0 = legacy_text(g0, head_dir(g0)) + choice_suffix(_sm0)
+        cal = [lambda: decide(_tx0) for _ in range(5)]
+    elif a.brain == "immortal":
+        cal = [lambda: brain.decide_game(g0) for _ in range(5)]
+    elif a.brain == "router":
+        cal = [lambda: brain.decide_game(g0, True) for _ in range(5)]
     else:
         cal = [lambda t=brain_text(g0, h, bool(a.phased)): brain.decide(t)
                for h in ("up", "down", "left", "right", "up")]
@@ -947,7 +1222,10 @@ def cmd_play(a):
     med = cal_ms[len(cal_ms) // 2]
     brain_max = "%.1f ms · %d /s" % (med, int(round(1000 / med))) if med > 0 else "—"
     print(f"[calibration] brain raw p50: {brain_max}", flush=True)
-    game = Game(a.width, a.height, a.seed)
+    if a.obstacles > 0:
+        print(f"[obstacles] {a.obstacles} blocks, seed {obs_seed} "
+              f"(proof off: Hamiltonian cycle assumes empty board)", flush=True)
+    game = _mk(a.seed)
     heading = head_dir(game)
     console = Console(style=f"on {BG}", highlight=False)
     if not a.headless and not console.is_terminal:
@@ -958,7 +1236,8 @@ def cmd_play(a):
         rec.write(json.dumps({"type": "metadata", "format": "gavel-snake-v1",
                               "question": QUESTION, "guarded": not a.unassisted,
                               "settings": vars(a)}) + "\n")
-    stats = {"interventions": 0, "steps_per_second": 0, "elapsed": 0,
+    stats = {"interventions": 0, "constrained": 0,
+             "steps_per_second": 0, "elapsed": 0,
              "model_name": model_name, "tag": tag, "engine_line": engine_line,
              "train_line1": train1, "train_line2": train2, "footer": footer,
              "hist": "", "loop": False, "brain_max": brain_max,
@@ -967,13 +1246,23 @@ def cmd_play(a):
     heads = deque(maxlen=10)
     hist = deque(maxlen=5)
     loop_left = 0
+    detour_left, detour_target = 0, 1
     last_score, since_food = 0, 0
     total_score, best_round = 0, 0
     victory = False
     total, calls, deaths = 0, 0, 0
     t_start = time.perf_counter()
     shown_board, shown_dec = game.snapshot(), {}
-    live = None if a.headless else Live(console=console, auto_refresh=False)
+    # Big boards cost more per redraw (Python builds every cell + the
+    # terminal repaints it), so cap the display rate by area: small boards
+    # stay at the requested fps, large ones drop frames instead of tearing.
+    # screen=True (alternate buffer) kills scroll-mode flicker entirely.
+    area_fps = max(8.0, 4500.0 / max(1, game.w * game.h))
+    eff_fps = min(a.render_fps, area_fps) if a.render_fps > 0 else 0
+    render_min_interval = 1.0 / eff_fps if eff_fps > 0 else 0
+    last_render = 0.0
+    live = None if a.headless else Live(console=console, auto_refresh=False,
+                                        screen=True)
     if live:
         live.__enter__()
     try:
@@ -985,8 +1274,22 @@ def cmd_play(a):
             danger = game.danger()
             phase = phase_of(game, danger)
             stats["phase"] = phase
-            if brain is None:
+            if brain is None and safety is None:
                 raw, conf, ms = decide(legacy_text(game, heading))
+            elif a.brain == "server" and a.safe_choices:
+                # Options must match training byte-for-byte: proof set on
+                # empty boards (snake_choice question), danger-free moves
+                # on pillar boards (snake_pillars question).
+                if getattr(game, "obstacles", None):
+                    safe = [m for m in MOVES if not danger.get(m)]
+                else:
+                    safe = safety.safe_moves(game)
+                raw, conf, ms = decide(legacy_text(game, heading)
+                                       + choice_suffix(safe))
+            elif a.brain == "immortal":
+                raw, conf, ms = brain.decide_game(game)
+            elif a.brain == "router":
+                raw, conf, ms = brain.decide_game(game, a.unassisted)
             else:
                 raw, conf, ms = brain.decide(brain_text(game, heading,
                                                         bool(a.phased)))
@@ -1006,7 +1309,68 @@ def cmd_play(a):
             # Regime deployment: model hunts (appetite), rules survive
             # (guarantee). In survive-phase the immortal policy decides and
             # the veto is counted honestly against the model's proposal.
-            if phase == "survive" and not a.unassisted and brain is not None:
+            # Immortal brain is proven-safe on empty boards: run unshielded
+            # so the zero-veto counter is the proof working, not the shield.
+            # With obstacles the proof is off (cycle assumes empty board),
+            # so validate against danger and fall back to the shield.
+            # Router brain already ran the shield cascade internally (or raw
+            # pursuit in unassisted mode): trust its veto accounting.
+            # Safe-choice architecture: the model picks AMONG the proof's
+            # candidate set; anything outside is deterministically replaced
+            # by the first safe move (cycle step). Survival and convergence
+            # hold by construction -- never by the model's accuracy.
+            if a.brain == "server" and a.safe_choices:
+                obs_here = set(getattr(game, "obstacles", None) or ())
+                if detour_left > 0 and game.score < detour_target:
+                    # Persist routing until the apple is eaten (or the cap
+                    # hits): one routed step just falls back into pacing
+                    # the severed cut. Still asks every move (panel stays
+                    # honest); execution is the router's.
+                    move, _, _ = router_fb.decide_game(game, a.unassisted)
+                    intervened = True
+                    stats["constrained"] = stats.get("constrained", 0) + 1
+                    detour_left -= 1
+                elif raw in safe and not danger.get(raw) \
+                        and (not obs_here or tail_safe(
+                            list(game.snake), game.apple, game.w, game.h,
+                            raw, obs_here)):
+                    move, intervened = raw, False
+                    detour_left = 0
+                else:
+                    free = [m for m in safe if not danger.get(m)]
+                    if obs_here:
+                        free = [m for m in free if tail_safe(
+                            list(game.snake), game.apple, game.w, game.h,
+                            m, obs_here)]
+                    if free:
+                        move = free[0]
+                        detour_left = 0
+                    else:
+                        # No survivable proof move (severed backbone or
+                        # every option breaks the tail link): route until
+                        # the next apple instead of dying.
+                        move, _, _ = router_fb.decide_game(game, a.unassisted)
+                        detour_left = 30
+                        detour_target = game.score + 1
+                    intervened = (move != raw)
+                    stats["constrained"] = stats.get("constrained", 0) + 1
+                hx0, hy0 = game.snake[0]
+                dx0, dy0 = DELTA[move]
+                safety.correct((hx0 + dx0, hy0 + dy0))
+            elif a.brain == "router":
+                move, intervened = raw, brain.last_intervened
+            elif a.brain == "immortal" and not a.unassisted:
+                if not danger.get(raw):
+                    move, intervened = raw, False
+                else:
+                    move, intervened = pick_move(
+                        game, ax, ay, danger, raw, a.unassisted,
+                        stats["loop"], getattr(a, "immortal", False))
+                    if intervened and hasattr(brain, "correct"):
+                        hx0, hy0 = game.snake[0]
+                        dx0, dy0 = DELTA[move]
+                        brain.correct((hx0 + dx0, hy0 + dy0))
+            elif phase == "survive" and not a.unassisted and brain is not None:
                 move, _ = pick_move(game, ax, ay, danger,
                                     teacher(ax, ay, danger),
                                     a.unassisted, stats["loop"], True)
@@ -1030,8 +1394,9 @@ def cmd_play(a):
                    "inference_ms": ms, "intervened": intervened}
             board = game.snapshot()
             shown_board, shown_dec = board, dec
-            if live:
+            if live and (now - last_render >= render_min_interval):
                 live.update(render(board, dec, stats), refresh=True)
+                last_render = now
             if rec:
                 rec.write(json.dumps({"type": "frame", "at": now - t_start,
                                       "game": board, "decision": dec,
@@ -1058,11 +1423,12 @@ def cmd_play(a):
                     time.sleep(1)
                 if a.unassisted or (a.steps and total >= a.steps):
                     break
-                game = Game(a.width, a.height, a.seed + 1)
+                game = _mk(a.seed + 1)
                 heading = head_dir(game)
                 heads.clear()
                 hist.clear()
                 loop_left = 0
+                detour_left, detour_target = 0, 1
                 last_score, since_food = 0, 0
     except KeyboardInterrupt:
         pass
@@ -1075,7 +1441,8 @@ def cmd_play(a):
         summary = {"steps": total, "inference_calls": calls, "seconds": round(el, 2),
                    "steps_per_second": round(total / el, 1) if el else 0,
                    "score": total_score, "best_round": best_round,
-                   "deaths": deaths, "interventions": stats["interventions"],
+                    "deaths": deaths, "interventions": stats["interventions"],
+                    "constrained": stats.get("constrained", 0),
                    "guarded": not a.unassisted, "brain": a.brain,
                    "immortal": getattr(a, "immortal", False),
                    "victory": victory}
@@ -1122,8 +1489,14 @@ def main(argv=None):
     pl = sub.add_parser("play")
     pl.add_argument("--width", type=int, default=12)
     pl.add_argument("--height", type=int, default=12)
+    pl.add_argument("--obstacles", type=int, default=0,
+                    help="N random blocked cells (0 = empty board, proof holds)")
+    pl.add_argument("--obstacle-seed", type=int, default=-1,
+                    help="obstacle layout seed (default: same as --seed)")
     pl.add_argument("--seed", type=int, default=7)
     pl.add_argument("--fps", type=float, default=12)
+    pl.add_argument("--render-fps", type=float, default=30,
+                    help="display refresh cap (sim still runs full speed); 0 = every frame")
     pl.add_argument("--max-speed", action="store_true")
     pl.add_argument("--steps", type=int, default=0)
     pl.add_argument("--record", default=None)
@@ -1132,11 +1505,20 @@ def main(argv=None):
     pl.add_argument("--immortal", action="store_true",
                     help="full-time cycle discipline: zero deaths guaranteed, "
                          "slower scoring, model drives only when disciplined")
-    pl.add_argument("--brain", choices=("server", "onnx"), default="onnx",
-                    help="onnx: local tiny transformer (default); server: Gavel /ask (logistic)")
+    pl.add_argument("--brain", choices=("server", "onnx", "immortal", "router"), default="onnx",
+                    help="onnx: local tiny transformer (default); server: Gavel /ask (logistic); immortal: proven-safe Hamiltonian (empty boards); router: BFS hunt + flood survival (obstacle boards)")
+    pl.add_argument("--immortal-policy", default="jumps-bfs",
+                    choices=("cycle", "jumps-manhattan", "jumps-bfs", "lookahead"),
+                    help="immortal brain policy (only with --brain immortal)")
     pl.add_argument("--question", default="snake_tfidf",
                     help="server-brain question name (snake_tfidf = retrained; "
                          "snake_move = original uniform-state model)")
+    pl.add_argument("--safe-choices", action="store_true",
+                    help="choice architecture (server brain only): the model "
+                         "picks AMONG the proof's safe set, listed in the "
+                         "input as options_* tokens; out-of-set outputs are "
+                         "replaced by the cycle step. Needs a question "
+                         "trained with options tokens.")
     pl.add_argument("--onnx", default="models/training_state/tiny_snake2_distil_fp32.onnx")
     pl.add_argument("--tok", default="models/training_state/tiny_snake2_distil")
     pl.add_argument("--threads", type=int, default=2)

@@ -29,6 +29,8 @@ models/*
 !models/training_state/
 models/training_state/*
 !models/training_state/*.py
+!models/training_state/immortal/
+!models/training_state/immortal/*.py
 !models/training_state/*.md
 !models/training_state/manifest.json
 !models/training_state/negation_*.json
