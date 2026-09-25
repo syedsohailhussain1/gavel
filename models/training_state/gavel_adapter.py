@@ -21,6 +21,7 @@ import torch
 import torch.nn as nn
 
 sys.path.insert(0, r"D:\jevbench")
+sys.path.insert(0, __import__("pathlib").Path(__file__).resolve().parent.as_posix())
 
 from jevbench.adapters.base import DecisionResult  # noqa: E402
 
@@ -86,6 +87,27 @@ class GavelLocalAdapter:
         self.head.load_state_dict(hp["head"])
         self.head.to(self.dev).eval()
         self.temp = float(hp["temperature"])
+        # Meta-calibrator: prefer weights embedded in the head file (versioned
+        # together), fall back to a meta_cal.json sidecar beside it.
+        self.meta, self._meta_fn = None, None
+        try:
+            from m2 import meta_rescale as _mr
+
+            meta = hp.get("meta_cal")
+            if meta is None:
+                import json as _js
+                import os as _os
+
+                mp = _os.path.join(
+                    _os.path.dirname(_os.path.abspath(self.head_path)),
+                    "meta_cal.json")
+                if _os.path.exists(mp):
+                    with open(mp, encoding="utf-8") as f:
+                        meta = _js.load(f)
+            if meta is not None:
+                self.meta, self._meta_fn = meta, _mr
+        except Exception:
+            self.meta, self._meta_fn = None, None
         self._loaded = True
 
     def _pair_texts(self, task):
@@ -159,12 +181,19 @@ class GavelLocalAdapter:
             ex = [math.exp(v / self.temp - m) for v in lg]
             s = sum(ex)
             probs = {lab: e / s for (lab, _), e in zip(opts, ex)}
+            if self._meta_fn is not None:
+                try:
+                    probs = self._meta_fn(probs, self.meta)
+                except Exception:
+                    pass
             res.probs = {k: float(v) for k, v in probs.items()}
             res.usage = {"input_tokens": int(enc.get("attention_mask").sum())}
             res.raw = {"runtime": {"trunk": self.trunk, "ctx": self.ctx,
                                    "temperature": self.temp,
+                                   "meta_cal": bool(self._meta_fn),
                                    "revision": self.revision,
-                                   "probability_origin": "native-softmax"}}
+                                   "probability_origin": "native-softmax" +
+                                   ("+meta" if self._meta_fn else "")}}
         except Exception as e:  # noqa: BLE001
             res.error = f"{type(e).__name__}: {str(e)[:300]}"
             return res

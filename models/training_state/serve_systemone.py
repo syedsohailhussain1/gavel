@@ -89,6 +89,20 @@ head.load_state_dict(hp["head"])
 head.to(dev).eval()
 TEMP = float(hp["temperature"])
 print(f"[serve] head {HEAD} T={TEMP}", flush=True)
+META, META_FN = hp.get("meta_cal"), None
+if META is not None:
+    try:
+        import sys as _sys
+        from pathlib import Path as _P
+
+        _sys.path.insert(0, str(_P(__file__).resolve().parent))
+        from m2 import meta_rescale as _mr
+
+        META_FN = _mr
+        print("[serve] meta-calibration ON (top-rescale)", flush=True)
+    except Exception as e:
+        META, META_FN = None, None
+        print(f"[serve] meta-calibration OFF ({e})", flush=True)
 
 
 def score_options(state, instructions, options):
@@ -111,7 +125,14 @@ def score_options(state, instructions, options):
     m = max(v / TEMP for v in lg)
     ex = [math.exp(v / TEMP - m) for v in lg]
     s = sum(ex)
-    return [(lab, e / s) for (lab, _), e in zip(options, ex)]
+    out = [(lab, e / s) for (lab, _), e in zip(options, ex)]
+    if META_FN is not None:
+        try:
+            probs = META_FN({lab: p for lab, p in out}, META)
+            out = [(lab, probs[lab]) for lab, _ in options]
+        except Exception:
+            pass
+    return out
 
 
 class Handler(BaseHTTPRequestHandler):

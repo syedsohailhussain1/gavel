@@ -17,6 +17,11 @@ distribution. No generation, no sampling, deterministic given weights.
 - Serving: `models/training_state/serve_systemone.py` (this repo,
   branch `generalist-v1`) — TypeSafe-compatible `/v1/systemone`, stdlib
   HTTP, batch-per-question inference
+- Confidence: temperature softmax, then meta-calibration top-rescale —
+  top-label confidence = L2-logistic P(correct) on [maxprob, margin,
+  entropy, log#options] (C=0.05, OOF ECE 0.032–0.057 over 4 seeds);
+  remaining mass rescaled proportionally, argmax provably preserved
+  (0 flips in 231). ECE 0.268 → 0.036 served (0.070 temp-only).
 - Eval harness: `models/training_state/run_jevbench.py` (their Runner +
   our `gavel_adapter.py`, Windows fcntl shim documented inline)
 

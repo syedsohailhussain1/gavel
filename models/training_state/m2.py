@@ -68,3 +68,41 @@ def calibrate_logits(logit_sets, targets):
     T = fit_temperature(logit_sets, targets)
     c1, k1 = at(T)
     return T, expected_calibration_error(c0, k0), expected_calibration_error(c1, k1)
+
+
+def meta_rescale(probs, meta):
+    """Meta-calibration: set top-label confidence to P(correct) from an
+    L2-logistic correctness head on decision signals; rescale the rest
+    proportionally (argmax + accuracy unchanged, distributions preserved).
+
+    probs: {label: prob} (already temperature-scaled). meta: artifact dict
+    with feats/mu/sd/w/b. Supported features: c (top prob), margin
+    (top-second), ent (entropy nats), kopts (log #options).
+    Returns a new dict. Unknown features raise (fail loud, not silent).
+    """
+    import math
+    ps = sorted(probs.values(), reverse=True)
+    top = ps[0]
+    second = ps[1] if len(ps) > 1 else 0.0
+    ent = -sum(v * math.log(max(v, 1e-15)) for v in probs.values())
+    table = {"c": top, "margin": top - second, "ent": ent,
+             "kopts": math.log(max(len(probs), 2))}
+    xs = []
+    for f in meta["feats"]:
+        if f not in table:
+            raise ValueError(f"meta feature not servable: {f}")
+        xs.append(table[f])
+    mu, sd, w, b = meta["mu"], meta["sd"], meta["w"], meta["b"]
+    z = sum(wi * (x - m) / s for wi, x, m, s in zip(w, xs, mu, sd)) + b
+    p_top = 1.0 / (1.0 + math.exp(-z))
+    labels = list(probs.keys())
+    top_lab = max(labels, key=lambda k: probs[k])
+    rest = 1.0 - p_top
+    rest_old = 1.0 - probs[top_lab]
+    out = {}
+    for lab in labels:
+        if lab == top_lab:
+            out[lab] = p_top
+        else:
+            out[lab] = probs[lab] / rest_old * rest if rest_old > 1e-12 else 0.0
+    return out
