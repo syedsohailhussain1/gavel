@@ -25,6 +25,8 @@ OUT = sys.argv[2] if len(sys.argv) > 2 else "pair_head.pt"
 EPOCHS = int(sys.argv[3]) if len(sys.argv) > 3 else 40
 LR = float(sys.argv[4]) if len(sys.argv) > 4 else 3e-4
 WIDE = int(sys.argv[5]) if len(sys.argv) > 5 else 512
+SEED = int(sys.argv[6]) if len(sys.argv) > 6 else 20260924
+torch.manual_seed(SEED)
 
 t0 = time.perf_counter()
 ck = torch.load(HID, map_location="cpu", weights_only=False)
@@ -38,7 +40,7 @@ by_item = defaultdict(list)
 for k, iid in enumerate(order):
     by_item[str(iid)].append(k)
 items = sorted(by_item)
-rng = torch.Generator().manual_seed(20260924)
+rng = torch.Generator().manual_seed(SEED)
 perm = torch.randperm(len(items), generator=rng).tolist()
 cut = int(len(items) * 0.8)
 tr_idx = [j for t in perm[:cut] for j in by_item[items[t]]]
