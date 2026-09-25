@@ -57,7 +57,7 @@ rows). Our measured token counts ride in each run's usage ledger.
 
 - Public: 173/231 = 74.9% (easy 91.7%, original 73.6%, hard 68.5%),
   schema validity 1.0, operational success 1.0.
-- ECE (hard, official scorer): 0.268 → 0.070 after refit.
+- ECE (hard, official scorer): 0.268 → 0.036 served (0.070 temp-only).
 - Latency here (throttled GTX 1650): p50 9.1s — NOT representative;
   entry latency is measured on operator hardware by design.
 - Robustness gates: option-order shuffle invariance holds (664 vs 665,
